@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://davito.es/media/langostina.png" width="120" alt="Nexo">
+  <img src="assets/images/nexo.png" width="180" alt="Nexo Bot">
 </p>
 
 <h1 align="center">Nexo Bot</h1>
@@ -11,6 +11,8 @@
 
 <p align="center">
   <a href="https://discord.gg/P2hXkTV3Jb">Servidor</a>
+  ·
+  <a href="https://davito.es/proyectos/nexo">Ficha</a>
   ·
   <a href="https://davito.es/proyectos">Portfolio</a>
   ·
@@ -26,6 +28,8 @@
 </p>
 
 No es un bot genérico de “invitar a cualquier servidor”. Está cerrado al guild de Nexo: slash commands, voz, tickets, backups y una IA de soporte con memoria por ticket.
+
+Ficha: [davito.es/proyectos/nexo](https://davito.es/proyectos/nexo) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Módulos
 
