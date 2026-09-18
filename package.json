@@ -1,0 +1,42 @@
+{
+  "name": "nexo-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bot de moderación, niveles, tickets, VoiceMaster, backups y entretenimiento para Nexo.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "start:prod": "bash start.sh",
+    "build": "tsc --noEmit false",
+    "typecheck": "tsc --noEmit",
+    "deploy": "tsx src/index.ts",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
+    "archiver": "^7.0.1",
+    "better-sqlite3": "^11.10.0",
+    "discord.js": "^14.21.0",
+    "dotenv": "^16.5.0",
+    "openai": "^5.12.2",
+    "unzipper": "^0.12.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.29",
+    "@types/unzipper": "^0.10.11",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true,
+    "esbuild@0.28.2": true
+  }
+}

@@ -1,0 +1,19 @@
+services:
+  nexo:
+    build: .
+    container_name: nexo-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/nexo.db
+      BACKUP_DIR: /app/backups
+    stop_grace_period: 25s
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - ./assets:/app/assets:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
