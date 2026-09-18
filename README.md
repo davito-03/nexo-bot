@@ -124,3 +124,7 @@ docker compose up -d --build # tras cambiar código
 `restart: unless-stopped` lo levanta solo si se cae o reinicia la máquina. `stop_grace_period: 25s` deja devolver apuestas de mesas de casino al apagar.
 
 Sin Docker: `./start.sh` o `npm run start:prod`. Node 20+.
+
+## Código público
+
+El token y las claves de IA van en `.env` (ver `.env.example`). `data/` y `backups/` no se publican.
