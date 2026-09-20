@@ -16,6 +16,7 @@ import { setMissionsClient } from "./modules/missions/engine.js";
 import { OFFICIAL_GUILD_ID } from "./constants.js";
 import { restoreBumpReminderTimers } from "./modules/bump/engine.js";
 import { setTaxClient, ensureBeneficiaryBalanceEqualityRebalance } from "./modules/economy/tax.js";
+import { setTransactionClient } from "./modules/economy/transactionLogger.js";
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   const client = new NexoClient();
   setMissionsClient(client);
   setTaxClient(client);
+  setTransactionClient(client);
   await loadCommands(client, path.join(srcDir, "commands"));
   await loadEvents(client, path.join(srcDir, "events"));
   registerLogEvents(client);

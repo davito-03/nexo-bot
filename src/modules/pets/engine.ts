@@ -2,6 +2,8 @@ import { getDb } from "../../database/index.js";
 import { getEco, saveEco, addWallet, deductFunds, totalFunds, giveItem, n, rng } from "../economy/engine.js";
 import { checkUserAchievements } from "../economy/achievements.js";
 
+export const MAX_PETS_PER_USER = 10;
+
 export interface PetSpecies {
   id: string;
   name: string;
@@ -69,21 +71,14 @@ export interface UserPet {
   expedition_hours: number;
   expedition_reward: string | null;
   created_at: number;
+  is_active: number;
 }
 
 export function expToNextLevel(level: number): number {
   return level * 50;
 }
 
-export function getUserPet(guildId: string, userId: string): UserPet | null {
-  const db = getDb();
-  const pet = db
-    .prepare("SELECT * FROM user_pets WHERE guild_id = ? AND user_id = ?")
-    .get(guildId, userId) as UserPet | undefined;
-
-  if (!pet) return null;
-
-  // Actualizar felicidad según el tiempo transcurrido desde la última interacción
+function updatePetHappiness(pet: UserPet, db = getDb()): void {
   const now = Date.now();
   const lastInteraction = Math.max(pet.last_feed, pet.last_pet, pet.created_at);
   const hoursPassed = (now - lastInteraction) / 3600_000;
@@ -96,21 +91,105 @@ export function getUserPet(guildId: string, userId: string): UserPet | null {
       pet.happiness = newHappiness;
     }
   }
-
-  return pet;
 }
 
-export function adoptPet(guildId: string, userId: string, petType: string, name: string): { ok: boolean; message: string; pet?: UserPet } {
+/** Devuelve todas las mascotas de un usuario en un servidor */
+export function getUserPets(guildId: string, userId: string): UserPet[] {
+  const db = getDb();
+  const pets = db
+    .prepare("SELECT * FROM user_pets WHERE guild_id = ? AND user_id = ? ORDER BY is_active DESC, level DESC, id ASC")
+    .all(guildId, userId) as UserPet[];
+
+  for (const pet of pets) {
+    updatePetHappiness(pet, db);
+  }
+
+  // Asegurar que si tiene mascotas pero ninguna marcada como activa, la primera sea la activa
+  if (pets.length > 0 && !pets.some((p) => p.is_active === 1)) {
+    pets[0].is_active = 1;
+    db.prepare("UPDATE user_pets SET is_active = 1 WHERE id = ?").run(pets[0].id);
+  }
+
+  return pets;
+}
+
+/** Busca una mascota específica (por ID numérico o nombre/especie) o la mascota activa por defecto */
+export function getUserPet(guildId: string, userId: string, petIdentifier?: string | number): UserPet | null {
+  const allPets = getUserPets(guildId, userId);
+  if (!allPets.length) return null;
+
+  if (petIdentifier !== undefined && petIdentifier !== null && petIdentifier !== "") {
+    const rawStr = String(petIdentifier).trim();
+    const asNum = Number(rawStr);
+
+    if (!Number.isNaN(asNum) && Number.isInteger(asNum)) {
+      const match = allPets.find((p) => p.id === asNum);
+      if (match) return match;
+    }
+
+    const lower = rawStr.toLowerCase();
+    const byName = allPets.find((p) => p.name.toLowerCase() === lower);
+    if (byName) return byName;
+
+    const byType = allPets.find((p) => p.pet_type.toLowerCase() === lower);
+    if (byType) return byType;
+
+    const partial = allPets.find((p) => p.name.toLowerCase().includes(lower));
+    if (partial) return partial;
+
+    return null;
+  }
+
+  // Si no se especifica, devolver la mascota activa (o la primera)
+  return allPets.find((p) => p.is_active === 1) ?? allPets[0] ?? null;
+}
+
+/** Establece una mascota como la compañera activa del usuario */
+export function setActivePet(
+  guildId: string,
+  userId: string,
+  petIdentifier: string | number,
+): { ok: boolean; message: string; pet?: UserPet } {
+  const targetPet = getUserPet(guildId, userId, petIdentifier);
+  if (!targetPet) {
+    return { ok: false, message: "No se ha encontrado la mascota indicada en tu colección." };
+  }
+
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("UPDATE user_pets SET is_active = 0 WHERE guild_id = ? AND user_id = ?").run(guildId, userId);
+    db.prepare("UPDATE user_pets SET is_active = 1 WHERE id = ?").run(targetPet.id);
+  })();
+
+  targetPet.is_active = 1;
+  const species = PET_SPECIES[targetPet.pet_type] ?? { emoji: "🐾" };
+  return {
+    ok: true,
+    message: `Has seleccionado a **${targetPet.name}** ${species.emoji} (Nv. ${targetPet.level}) como tu compañera activa.`,
+    pet: targetPet,
+  };
+}
+
+/** Adopta una nueva mascota, permitiendo múltiples compañeros */
+export function adoptPet(
+  guildId: string,
+  userId: string,
+  petType: string,
+  name: string,
+): { ok: boolean; message: string; pet?: UserPet } {
   const species = PET_SPECIES[petType];
   if (!species) return { ok: false, message: "Especie de mascota no válida." };
 
-  const existing = getUserPet(guildId, userId);
-  if (existing) {
+  const currentPets = getUserPets(guildId, userId);
+  if (currentPets.length >= MAX_PETS_PER_USER) {
     return {
       ok: false,
-      message: `Ya tienes una mascota activa: **${existing.name}** (${PET_SPECIES[existing.pet_type]?.emoji ?? "🐾"}). No puedes adoptar otra simultáneamente.`,
+      message: `Has alcanzado el límite máximo de **${MAX_PETS_PER_USER} mascotas**. Si deseas adoptar una nueva, puedes liberar alguna con \`/mascota liberar\`.`,
     };
   }
+
+  const cleanName = name.trim().slice(0, 30);
+  if (!cleanName) return { ok: false, message: "Por favor indica un nombre para tu mascota." };
 
   const eco = getEco(guildId, userId);
   if (totalFunds(eco) < species.price) {
@@ -120,35 +199,51 @@ export function adoptPet(guildId: string, userId: string, petType: string, name:
     };
   }
 
-  const cleanName = name.trim().slice(0, 30);
-  if (!cleanName) return { ok: false, message: "Por favor indica un nombre para tu mascota." };
-
   const now = Date.now();
   const db = getDb();
+  const isFirst = currentPets.length === 0 ? 1 : 0;
 
+  let insertedId = 0;
   db.transaction(() => {
     deductFunds(eco, species.price);
     saveEco(eco);
 
-    db.prepare(
-      `INSERT INTO user_pets (guild_id, user_id, pet_type, name, level, exp, happiness, last_feed, last_pet, on_expedition_until, expedition_hours, expedition_reward, created_at)
-       VALUES (?, ?, ?, ?, 1, 0, 100, ?, ?, 0, 0, NULL, ?)`,
-    ).run(guildId, userId, petType, cleanName, now, now, now);
+    const info = db
+      .prepare(
+        `INSERT INTO user_pets (guild_id, user_id, pet_type, name, level, exp, happiness, last_feed, last_pet, on_expedition_until, expedition_hours, expedition_reward, created_at, is_active)
+         VALUES (?, ?, ?, ?, 1, 0, 100, ?, ?, 0, 0, NULL, ?, ?)`,
+      )
+      .run(guildId, userId, petType, cleanName, now, now, now, isFirst);
+    insertedId = Number(info.lastInsertRowid);
   })();
 
-  const newPet = getUserPet(guildId, userId)!;
-  return { ok: true, message: `¡Felicidades! Has adoptado a **${newPet.name}** el ${species.name} ${species.emoji}.`, pet: newPet };
+  const newPet = getUserPet(guildId, userId, insertedId)!;
+  const totalCount = currentPets.length + 1;
+  const activeNote = isFirst ? " Se ha establecido como tu mascota activa." : ` Tienes **${totalCount}/${MAX_PETS_PER_USER}** mascotas. Puedes seleccionarla como activa con \`/mascota seleccionar\`.`;
+
+  return {
+    ok: true,
+    message: `¡Felicidades! Has adoptado a **${newPet.name}** el ${species.name} ${species.emoji}.${activeNote}`,
+    pet: newPet,
+  };
 }
 
-export function feedPet(guildId: string, userId: string): { ok: boolean; message: string; leveledUp?: boolean } {
-  const pet = getUserPet(guildId, userId);
+export function feedPet(
+  guildId: string,
+  userId: string,
+  petIdentifier?: string | number,
+): { ok: boolean; message: string; leveledUp?: boolean } {
+  const pet = getUserPet(guildId, userId, petIdentifier);
   if (!pet) return { ok: false, message: "No tienes ninguna mascota para alimentar. ¡Adopta una con `/mascota adoptar`!" };
 
   const now = Date.now();
   const FEED_CD_MS = 2 * 3600_000;
   if (now - pet.last_feed < FEED_CD_MS) {
     const remSec = Math.ceil((FEED_CD_MS - (now - pet.last_feed)) / 1000);
-    return { ok: false, message: `Tu mascota está saciada. Podrás alimentarla de nuevo en <t:${Math.floor((now + remSec * 1000) / 1000)}:R>.` };
+    return {
+      ok: false,
+      message: `**${pet.name}** está saciada. Podrás alimentarla de nuevo en <t:${Math.floor((now + remSec * 1000) / 1000)}:R>.`,
+    };
   }
 
   const eco = getEco(guildId, userId);
@@ -192,14 +287,21 @@ export function feedPet(guildId: string, userId: string): { ok: boolean; message
   };
 }
 
-export function petPet(guildId: string, userId: string): { ok: boolean; message: string; leveledUp?: boolean } {
-  const pet = getUserPet(guildId, userId);
+export function petPet(
+  guildId: string,
+  userId: string,
+  petIdentifier?: string | number,
+): { ok: boolean; message: string; leveledUp?: boolean } {
+  const pet = getUserPet(guildId, userId, petIdentifier);
   if (!pet) return { ok: false, message: "No tienes ninguna mascota para acariciar. ¡Adopta una con `/mascota adoptar`!" };
 
   const now = Date.now();
   const PET_CD_MS = 60 * 60_000;
   if (now - pet.last_pet < PET_CD_MS) {
-    return { ok: false, message: `Acabas de mimar a **${pet.name}**. Vuelve a acariciarle en <t:${Math.floor((pet.last_pet + PET_CD_MS) / 1000)}:R>.` };
+    return {
+      ok: false,
+      message: `Acabas de mimar a **${pet.name}**. Vuelve a acariciarle en <t:${Math.floor((pet.last_pet + PET_CD_MS) / 1000)}:R>.`,
+    };
   }
 
   const expGain = 10;
@@ -230,9 +332,14 @@ export function petPet(guildId: string, userId: string): { ok: boolean; message:
   };
 }
 
-export function renamePet(guildId: string, userId: string, newName: string): { ok: boolean; message: string } {
-  const pet = getUserPet(guildId, userId);
-  if (!pet) return { ok: false, message: "No tienes ninguna mascota activa." };
+export function renamePet(
+  guildId: string,
+  userId: string,
+  newName: string,
+  petIdentifier?: string | number,
+): { ok: boolean; message: string } {
+  const pet = getUserPet(guildId, userId, petIdentifier);
+  if (!pet) return { ok: false, message: "No tienes ninguna mascota activa para renombrar." };
 
   const clean = newName.trim().slice(0, 30);
   if (!clean) return { ok: false, message: "El nombre no es válido." };
@@ -241,15 +348,49 @@ export function renamePet(guildId: string, userId: string, newName: string): { o
   return { ok: true, message: `Tu mascota ahora se llama **${clean}**.` };
 }
 
-export function startExpedition(guildId: string, userId: string, hours: number): { ok: boolean; message: string } {
-  const pet = getUserPet(guildId, userId);
+export function releasePet(
+  guildId: string,
+  userId: string,
+  petIdentifier: string | number,
+): { ok: boolean; message: string } {
+  const pet = getUserPet(guildId, userId, petIdentifier);
+  if (!pet) return { ok: false, message: "No se encontró la mascota que deseas liberar." };
+
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("DELETE FROM user_pets WHERE id = ?").run(pet.id);
+    // Si era la activa, activar la primera restante
+    if (pet.is_active === 1) {
+      const remaining = db
+        .prepare("SELECT id FROM user_pets WHERE guild_id = ? AND user_id = ? ORDER BY level DESC, id ASC LIMIT 1")
+        .get(guildId, userId) as { id: number } | undefined;
+      if (remaining) {
+        db.prepare("UPDATE user_pets SET is_active = 1 WHERE id = ?").run(remaining.id);
+      }
+    }
+  })();
+
+  const species = PET_SPECIES[pet.pet_type] ?? { emoji: "🐾" };
+  return {
+    ok: true,
+    message: `Has liberado a **${pet.name}** ${species.emoji}. Ahora vive libre y feliz en la naturaleza de Nexo.`,
+  };
+}
+
+export function startExpedition(
+  guildId: string,
+  userId: string,
+  hours: number,
+  petIdentifier?: string | number,
+): { ok: boolean; message: string } {
+  const pet = getUserPet(guildId, userId, petIdentifier);
   if (!pet) return { ok: false, message: "No tienes una mascota para enviar a expediciones." };
 
   const now = Date.now();
   if (pet.on_expedition_until > now) {
     return {
       ok: false,
-      message: `**${pet.name}** ya está explorando el mundo y regresará <t:${Math.floor(pet.on_expedition_until / 1000)}:R>.`,
+      message: `**${pet.name}** ya está explorando y regresará <t:${Math.floor(pet.on_expedition_until / 1000)}:R>.`,
     };
   }
 
@@ -263,8 +404,8 @@ export function startExpedition(guildId: string, userId: string, hours: number):
   const endsAt = now + durationMs;
 
   // Calcular recompensas
-  let baseMin = 2000 * hours;
-  let baseMax = 4500 * hours;
+  const baseMin = 2000 * hours;
+  const baseMax = 4500 * hours;
 
   // Multiplicador por nivel de la mascota (+5% por nivel)
   const levelMult = 1 + (pet.level - 1) * 0.05;
@@ -304,7 +445,11 @@ export function startExpedition(guildId: string, userId: string, hours: number):
   };
 }
 
-export function claimExpedition(guildId: string, userId: string): {
+export function claimExpedition(
+  guildId: string,
+  userId: string,
+  petIdentifier?: string | number,
+): {
   ok: boolean;
   message: string;
   coins?: number;
@@ -312,21 +457,84 @@ export function claimExpedition(guildId: string, userId: string): {
   expGained?: number;
   leveledUp?: boolean;
 } {
-  const pet = getUserPet(guildId, userId);
-  if (!pet) return { ok: false, message: "No tienes ninguna mascota." };
-
-  if (!pet.on_expedition_until || pet.expedition_hours <= 0) {
-    return { ok: false, message: `**${pet.name}** no está en ninguna expedición actualmente. ¡Envíale a explorar con \`/mascota expedicion\`!` };
-  }
+  const allPets = getUserPets(guildId, userId);
+  if (!allPets.length) return { ok: false, message: "No tienes ninguna mascota." };
 
   const now = Date.now();
-  if (now < pet.on_expedition_until) {
+
+  // Si se pasa una mascota específica:
+  if (petIdentifier !== undefined && petIdentifier !== null && petIdentifier !== "") {
+    const pet = getUserPet(guildId, userId, petIdentifier);
+    if (!pet) return { ok: false, message: "No se encontró la mascota especificada." };
+
+    if (!pet.on_expedition_until || pet.expedition_hours <= 0) {
+      return { ok: false, message: `**${pet.name}** no está en ninguna expedición actualmente. ¡Envíale a explorar con \`/mascota expedicion\`!` };
+    }
+
+    if (now < pet.on_expedition_until) {
+      return {
+        ok: false,
+        message: `⏳ **${pet.name}** aún está explorando. Regresará <t:${Math.floor(pet.on_expedition_until / 1000)}:R>.`,
+      };
+    }
+
+    return claimSinglePetExpedition(guildId, userId, pet);
+  }
+
+  // Si no se especifica mascota, buscar todas las que estén listas para reclamar
+  const readyPets = allPets.filter((p) => p.on_expedition_until > 0 && p.on_expedition_until <= now);
+
+  if (readyPets.length === 0) {
+    const ongoing = allPets.filter((p) => p.on_expedition_until > now);
+    if (ongoing.length > 0) {
+      const ongoingLines = ongoing
+        .map((p) => `▸ **${p.name}** regresa <t:${Math.floor(p.on_expedition_until / 1000)}:R>`)
+        .join("\n");
+      return {
+        ok: false,
+        message: `⏳ Ninguna expedición ha finalizado todavía:\n${ongoingLines}`,
+      };
+    }
     return {
       ok: false,
-      message: `⏳ **${pet.name}** aún está explorando. Regresará <t:${Math.floor(pet.on_expedition_until / 1000)}:R>.`,
+      message: "Ninguna de tus mascotas está en expedición actualmente. ¡Envíalas a explorar con `/mascota expedicion`!",
     };
   }
 
+  // Reclamar todas las listas
+  let totalCoins = 0;
+  const allItems: { id: string; qty: number }[] = [];
+  const claimSummaries: string[] = [];
+
+  for (const pet of readyPets) {
+    const res = claimSinglePetExpedition(guildId, userId, pet);
+    if (res.ok) {
+      totalCoins += res.coins ?? 0;
+      if (res.items) allItems.push(...res.items);
+      claimSummaries.push(res.message);
+    }
+  }
+
+  return {
+    ok: true,
+    message: claimSummaries.join("\n\n"),
+    coins: totalCoins,
+    items: allItems,
+  };
+}
+
+function claimSinglePetExpedition(
+  guildId: string,
+  userId: string,
+  pet: UserPet,
+): {
+  ok: boolean;
+  message: string;
+  coins?: number;
+  items?: { id: string; qty: number }[];
+  expGained?: number;
+  leveledUp?: boolean;
+} {
   let rewardInfo = { coins: 3000, items: [] as { id: string; qty: number }[] };
   try {
     if (pet.expedition_reward) rewardInfo = JSON.parse(pet.expedition_reward);
@@ -371,9 +579,9 @@ export function claimExpedition(guildId: string, userId: string): {
   return {
     ok: true,
     message:
-      `🏰 **${pet.name}** ${species.emoji} ha vuelto triunfalmente de su expedición de **${hours}h**.\n\n` +
-      `💰 **Monedas recolectadas:** **${n(rewardInfo.coins)}** (ingresadas en cartera)${itemsText}\n` +
-      `⭐ **Experiencia ganada:** +${expGain} XP${lvlText}`,
+      `🏰 **${pet.name}** ${species.emoji} ha vuelto triunfalmente de su expedición de **${hours}h**.\n` +
+      `💰 **Monedas:** **${n(rewardInfo.coins)}** (ingresadas en cartera)${itemsText}\n` +
+      `⭐ **Experiencia:** +${expGain} XP${lvlText}`,
     coins: rewardInfo.coins,
     items: rewardInfo.items,
     expGained: expGain,

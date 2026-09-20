@@ -112,7 +112,14 @@ const command: Command = {
           const colorEmoji = diff >= 0 ? "🟢" : "🔴";
           return `**${a.symbol}** (\`${a.name}\`): **${a.current_price.toLocaleString("es-ES")}** 🪙 ${colorEmoji} \`${sign}${diff.toFixed(2)}%\`\n\`[${spark}]\``;
         });
-        embed.addFields({ name: title, value: lines.join("\n\n") });
+
+        // Split into chunks of max 7 to stay under 1024 chars per field
+        const chunkSize = 7;
+        for (let i = 0; i < lines.length; i += chunkSize) {
+          const chunk = lines.slice(i, i + chunkSize);
+          const fieldName = i === 0 ? title : `${title} (cont.)`;
+          embed.addFields({ name: fieldName, value: chunk.join("\n\n") });
+        }
       }
 
       await interaction.reply({ embeds: [embed] });

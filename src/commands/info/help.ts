@@ -9,10 +9,12 @@ import {
 import { COLORS, SERVER_NAME, SERVER_TAGLINE } from "../../constants.js";
 import type { Command } from "../../types/index.js";
 import type { NexoClient } from "../../client.js";
+import { DAVITO_ROLE_ID } from "../../modules/economy/heistEngine.js";
 
 export const HELP_CATEGORIES = [
   { id: "overview", label: "Visión General", emoji: "🏠", desc: "Resumen y guía rápida de Nexo Bot" },
-  { id: "economia", label: "Economía & Finanzas", emoji: "🪙", desc: "Banca privada, asaltos, logros, títulos, préstamos y transferencias" },
+  { id: "asaltos", label: "Asaltos & Operaciones", emoji: "🚨", desc: "Golpes tácticos cooperativos, 6 objetivos, roles, mercado negro y QTEs" },
+  { id: "economia", label: "Economía & Finanzas", emoji: "🪙", desc: "Banca privada, propiedades, oficios, cartas gacha y comercio" },
   { id: "trading", label: "Trading, Criptos & Minería", emoji: "📈", desc: "Bolsa de valores, criptos, dividendos 12:00 y minería nivel 30" },
   { id: "pesca", label: "Pesca Deportiva & Marina", emoji: "🎣", desc: "Expediciones fluviales, cañas, cebos, capturas y venta en lote" },
   { id: "caza", label: "Caza & Expediciones", emoji: "🏹", desc: "Caza en el bosque, rifles, trampas reforzadas y trofeos" },
@@ -27,6 +29,7 @@ export const HELP_CATEGORIES = [
 
 const CATEGORY_COLORS: Record<string, number> = {
   overview: 0x5865f2,
+  asaltos: 0xe74c3c,
   economia: 0x00d166,
   trading: 0x2ecc71,
   pesca: 0x0984e3,
@@ -66,13 +69,18 @@ export function renderHelpView(
       .setDescription(
         `*${SERVER_TAGLINE}*\n\n` +
           `¡Bienvenido a la central interactiva de mandos de **${SERVER_NAME}**!\n` +
-          `Explora todos los módulos especializados utilizando el selector ubicado al pie de este mensaje.\n` +
+          `Usa \`/help [seccion]\` o navega por los módulos especializados utilizando el selector al pie de este mensaje.\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
       )
       .addFields(
         {
-          name: "🪙  Economía, Logros & Asaltos",
-          value: "Banca privada (fondos de cartera/banco), depósitos a plazo fijo, asaltos cooperativos al banco, vitrina de logros, títulos cosméticos y mercado.",
+          name: "🚨  Asaltos & Operaciones Tácticas (/asalto)",
+          value: "Golpes cooperativos con lobby de hasta 16 criminales, 5 roles con progresión (Nv. 1-10), mercado negro de armamento, eventos QTE en tiempo real, 6 objetivos progresivos y el secreto definitivo: la Fortaleza de Davito.",
+          inline: false,
+        },
+        {
+          name: "🪙  Economía, Logros & Finanzas",
+          value: "Banca privada, depósitos a plazo fijo, propiedades con rentas pasivas, profesiones laborales, cartas coleccionables gacha, vitrina de logros, títulos y lotería.",
           inline: false,
         },
         {
@@ -112,17 +120,95 @@ export function renderHelpView(
         },
         {
           name: "🎉  Comunidad, Minijuegos & Eventos",
-          value: "Minijuegos exprés de chat (matemáticas, anagramas, trivia), misiones automáticas, sorteos ponderados y eventos.",
+          value: "Juego del contador con salvavidas comunitarios, racha DISBOARD, minijuegos de chat, encuestas hasta 15 opciones, matrimonios, misiones y sorteos.",
           inline: false,
         },
         {
           name: "🎭  Diversión, Mascotas & Voz",
-          value: "Adopción y expediciones de mascotas virtuales, cofres de voz aéreos, recompensas por racha diaria en VC, imágenes IA (FLUX) y confesiones.",
+          value: "Colección de hasta 10 mascotas con expediciones en paralelo, juegos clásicos (Conecta 4, Ahorcado), cofres aéreos y recompensas de voz, imágenes IA (FLUX) y confesiones.",
           inline: false,
         },
         {
           name: "⚙️  Administración & Auditoría",
-          value: "Configuración general, canales de registro en tiempo real (mensajes, comandos...) y copias de seguridad.",
+          value: "Configuración general, paneles de auto-roles interactivos para el staff, canales de auditoría en tiempo real y copias de seguridad.",
+          inline: false,
+        },
+      );
+  } else if (selectedCat === "asaltos") {
+    embed
+      .setTitle(`🚨 Asaltos Tácticos, Roles Criminales & Fortaleza de Davito`)
+      .setDescription(
+        `Coordina golpes a gran escala contra objetivos de alta seguridad, especialízate en roles con progresión, equípate en el mercado negro y desactiva alarmas en tiempo real con decisiones QTE.\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      )
+      .addFields(
+        {
+          name: "🎮  Comandos Principales (/asalto y /crimen)",
+          value:
+            `▸ \`/asalto iniciar [objetivo]\` · Inicia un lobby táctico (hasta 8 asaltantes, o 16 en Davito) con 65s para reclutar cómplices y elegir roles.\n` +
+            `▸ \`/asalto info [objetivo]\` · Consulta el nivel de seguridad (1 a 10), modificadores, botín estimado y el temporizador de cooldown en tiempo real.\n` +
+            `▸ \`/asalto rol elegir|ver|lista\` · Especialízate en las 7 ramas del crimen organizado (Nv. 1 a 10 con títulos honoríficos).\n` +
+            `▸ \`/asalto mercadonegro ver|comprar\` · Armamento y equipamiento colectivo para toda la banda.\n` +
+            `▸ \`/asalto perfil [usuario]\` · Carnet criminal, historial de golpes, rol activo, rango y vitrina.\n` +
+            `▸ \`/asalto top [categoria]\` · Ranking de las mentes maestras más buscadas y ricas del servidor.\n` +
+            `▸ \`/asalto reiniciar\` / \`/asalto admin-nivel\` · Comandos de administración para resetear enfriamientos y ajustar seguridad.\n` +
+            `▸ \`/crimen hacer\` · Delitos callejeros menores en solitario con riesgo de cárcel y multas.`,
+          inline: false,
+        },
+        {
+          name: "🎭  Especialidades & Roles de Asalto (Nv. 1 a 10)",
+          value:
+            `▸ 🧠 **Hacker Cibernético:** Anula cortafuegos, satura cámaras CCTV e inyecta bucles (+3% éxito base +1%/lvl). Indispensable en hackeos.\n` +
+            `▸ 🔫 **Tirador / Enforcer:** Mantiene a raya a la guardia y ofrece fuego de cobertura táctica (+4% éxito base +1%/lvl).\n` +
+            `▸ 🕵️ **Infiltrador Silencioso:** Sigilo por conductos, ganzúas magnéticas y neutralización de sensores (+3% éxito base +1%/lvl + botín).\n` +
+            `▸ 💣 **Experto en Demoliciones:** Maestro en explosivos para reventar compuertas acorazadas (+15% botín base +2.5%/lvl).\n` +
+            `▸ 🚗 **Piloto de Fuga:** Si el golpe fracasa, aporta un 35% base (+4%/lvl) de huida para salvar a la banda del calabozo y multas.\n` +
+            `▸ 🩺 **Médico de Combate:** Soporte vital táctico y calmantes bajo fuego (+4% éxito base +1%/lvl). Reduce un 40% el calabozo de la banda.\n` +
+            `▸ 🎙️ **Negociador / Mente Maestra:** Guerra psicológica y engaño por radio (+4% éxito base +1%/lvl). Reduce un 30% (+3%/lvl) las multas de la banda.`,
+          inline: false,
+        },
+        {
+          name: "🌟  Sinergias de Banda & Mercado Negro",
+          value:
+            `▸ **Sinergias de Equipo:** 3 roles distintos activan *Sinergia Táctica* (+5% éxito, +10% botín); 5 roles activan *Sinergia Perfecta* (+10% éxito, +20% botín); los 7 roles activan *Sindicato Total* (+14% éxito, +30% botín).\n` +
+            `▸ 📟 **Inhibidor EMP:** Pulso electromagnético que apaga sistemas electrónicos de seguridad (+6% éxito colectivo).\n` +
+            `▸ 💣 **C4 Militar:** Carga plástica que revienta cajas de seguridad adicionales (+20% botín total).\n` +
+            `▸ 🔥 **Taladro Térmico:** Funde pernos acorazados de tungsteno y titanio (+30% botín total).\n` +
+            `▸ 🚗 **Furgón Blindado:** Garantiza un 60% de probabilidad de huida ante cualquier fallo policial.\n` +
+            `▸ 💉 **Adrenalina:** Concede una segunda oportunidad inmediata si el golpe falla por un margen estrecho.\n` +
+            `▸ 🎭 **Máscara Balística:** Oculta identidades y reduce drásticamente las horas de arresto en el calabozo.`,
+          inline: false,
+        },
+        {
+          name: "🏛️  Objetivos, Blindajes & Alerta Roja (Cooldowns)",
+          value:
+            `▸ 🏛️ **Banco Central:** Bóveda subterránea del tesoro estatal (Botín base: 35k - 65k).\n` +
+            `▸ 🎰 **Gran Casino Royal:** Salas VIP y cámaras acorazadas de fichas de platino (Botín base: 50k - 90k).\n` +
+            `▸ 🏰 **Mansión del Magnate:** Complejo residencial fortificado y arte milenario (Botín base: 70k - 125k).\n` +
+            `▸ 🏛️ **Museo Imperial:** Reliquias milenarias, sarcófagos arcanos y joyas dinásticas (Botín base: 60k - 110k).\n` +
+            `▸ 🚂 **Tren Blindado:** Convoy transcontinental armado a 200 km/h (Botín base: 85k - 150k).\n` +
+            `▸ 🏢 **Sede Nexo Corp:** Servidores cuánticos corporativos y patentes exclusivas (Botín base: 100k - 180k).\n` +
+            `▸ ⚓ **Submarino Nuclear "Leviathan":** Coloso sumergido a 3.000m con secretos atómicos (Botín base: 130k - 220k).\n` +
+            `▸ 🛰️ **Estación Orbital Quantum:** Instalación espacial con tecnología de antimateria (Botín base: 180k - 320k).\n` +
+            `▸ **Escala de Seguridad (1-10):** Cada victoria sube +1 nivel de seguridad (más blindaje y botín hasta ×5.5); una derrota resta -1 nivel.\n` +
+            `▸ **Cooldown de Alerta Roja:** Cada golpe activa un enfriamiento táctico para ese objetivo (visible en \`/asalto info\`).`,
+          inline: false,
+        },
+        {
+          name: "⚡  Mecánicas en Vivo: Canvas, QTEs & Consecuencias",
+          value:
+            `▸ **HUD Telemétrico en Tiempo Real:** Imagen Canvas generada en vivo con avatares reales, roles y telemetría de hasta 16 asaltantes.\n` +
+            `▸ **Incidentes Tácticos (QTE):** Decisiones interactivas en directo por botones (9-12s) con dilemas y roles recomendados.\n` +
+            `▸ **Multas Judiciales:** En caso de captura en golpes estándar, multas judiciales proporcionales al patrimonio (máximo 500.000 🪙).\n` +
+            `▸ **Régimen Davito:** En la Fortaleza de Davito, el fracaso supone la **pérdida del 25% de todo el patrimonio** acumulado (sin tope).`,
+          inline: false,
+        },
+        {
+          name: "👑  El Golpe Secreto Definitivo: Fortaleza de Davito",
+          value:
+            `▸ **Condición de Desbloqueo:** Permanece totalmente oculto hasta que **los 8 objetivos estándar alcanzan el Nivel 10 simultáneamente**.\n` +
+            `▸ **Reglas Extremas:** Permite bandas colosales de **hasta 16 asaltantes**, enfrenta un **gauntlet implacable de 7 Quick Time Events consecutivos**, y posee una dificultad matemáticamente calibrada para ser casi imposible (**estrictamente menor al 0.77% de éxito** incluso con el mejor equipo y roles al máximo).\n` +
+            `▸ **Recompensa Legendaria:** Si la banda logra la hazaña, cada superviviente recibe **🪙 100.000.000 de Nexocoins** y el exclusivo rol honorífico <@&${DAVITO_ROLE_ID}>.`,
           inline: false,
         },
       );
@@ -137,105 +223,78 @@ export function renderHelpView(
         {
           name: "💳  Gestión de Fondos & Banca Privada",
           value:
-            `▸ \`/eco bal [usuario]\` · Consulta efectivo en mano, saldo bancario protegido y patrimonio neto.\n` +
-            `▸ \`/eco depositar <cantidad|all>\` · Guarda tu dinero en la bóveda bancaria blindada contra robos.\n` +
-            `▸ \`/eco retirar <cantidad|all>\` · Retira efectivo de tu cuenta para compras o apuestas.\n` +
-            `▸ \`/eco pagar <usuario> <cantidad>\` · Transfiere dinero (usa saldo de cartera y banco automáticamente) de forma inmediata a otro usuario.\n` +
-            `▸ \`/eco prestamo [cantidad]\` · Solicita un préstamo bancario adaptado a tu solvencia patrimonial.\n` +
-            `▸ \`/eco deuda [cantidad]\` · Consulta tu saldo pendiente con la entidad y amortiza pagos.\n` +
-            `▸ \`/eco plazo-fijo <ver|abrir|reclamar>\` · Depósitos bancarios bloqueados (3 a 30 días, +6% a +80% de interés libre de asaltos).\n` +
-            `▸ \`/eco perfil [usuario]\` · Ficha financiera detallada: título cosmético, patrimonio, racha daily, minería e ingresos.\n` +
-            `▸ \`/eco top [tipo]\` · Tabla clasificatoria con los usuarios más adinerados del servidor.`,
+            `▸ \`/eco bal [usuario]\` · Consulta efectivo, banco y patrimonio neto.\n` +
+            `▸ \`/eco depositar <cantidad|all>\` / \`/eco retirar <cantidad|all>\` · Guarda o retira fondos de la bóveda bancaria.\n` +
+            `▸ \`/eco pagar <usuario> <cantidad>\` · Transfiere dinero a otro usuario (cartera + banco).\n` +
+            `▸ \`/eco prestamo [cantidad]\` / \`/eco deuda [cantidad]\` · Préstamos y amortización de deuda.\n` +
+            `▸ \`/eco plazo-fijo <ver|abrir|reclamar>\` · Depósitos bloqueados (3-30 días, +6% a +80% de interés).\n` +
+            `▸ \`/eco perfil [usuario]\` · Ficha financiera completa. | \`/eco top [tipo]\` · Ranking de riqueza.`,
           inline: false,
         },
         {
-          name: "🏆  Logros & Títulos Cosméticos (/logros y /titulos)",
+          name: "🏆  Logros & Títulos (/logros y /titulos)",
           value:
-            `▸ \`/logros [usuario]\` · Vitrina interactiva con tus logros conseguidos, progreso y premios en NexoCoins.\n` +
-            `▸ \`/titulos ver [usuario]\` · Consulta todos tus títulos honoríficos desbloqueados.\n` +
-            `▸ \`/titulos equipar <titulo>\` · Equipa un título para lucirlo en tu tarjeta de \`/eco perfil\` (con autocompletado en vivo).\n` +
-            `▸ \`/titulos desequipar\` · Retira tu título cosmético actual.`,
+            `▸ \`/logros [usuario]\` · Vitrina de logros, progreso y premios.\n` +
+            `▸ \`/titulos ver|equipar|desequipar\` · Gestión de títulos cosméticos honoríficos.`,
           inline: false,
         },
         {
-          name: "🔫  Golpes, Delitos & Asaltos Cooperativos",
+          name: "🏦  Asaltos & Crimen (/asalto y /crimen)",
           value:
-            `▸ \`/eco asalto\` · Organiza o únete a un asalto cooperativo al Banco Central de Nexo (2 a 8 criminales, lobby interactivo de 60s, botín de 35.000 a 65.000 🪙 por miembro o 10 min de calabozo si falláis).\n` +
-            `▸ \`/crimen hacer\` · Comete delitos individuales rápidos para ganar dinero sucio arriesgándote a multas y cárcel.`,
+            `▸ \`/asalto iniciar [objetivo]\` · Asaltos tácticos (Banco, Casino, Mansión, Nexo Corp, Tren blindado, Estación espacial...). Lobby de 65s.\n` +
+            `▸ \`/asalto info [objetivo]\` · Panel de objetivos, niveles de blindaje, multiplicadores y temporizadores de alerta roja.\n` +
+            `▸ \`/asalto perfil|roles|mercadonegro|top|reiniciar\` · Carnet criminal, roles tácticos, mercado negro, ranking y rescate de lobby.\n` +
+            `▸ \`/crimen hacer\` · Delitos individuales rápidos con riesgo de multas y cárcel.\n` +
+            `▸ 💡 *Consulta la sección dedicada \`🚨 Asaltos & Operaciones\` en el menú para ver la guía completa, roles, QTEs y el asalto secreto.*`,
           inline: false,
         },
         {
-          name: "💼  Trabajos, Salarios & Actividades Legales",
+          name: "💼  Trabajos & Actividades Legales",
           value:
-            `▸ \`/eco work\` · Jornada laboral remunerada según tu profesión activa (~30 min cooldown).\n` +
-            `▸ \`/eco extra\` · Horas extras de trabajo rápido para ganar dinero al instante (~10 min cooldown).\n` +
-            `▸ \`/eco daily\` · Recompensa diaria obligatoria con racha acumulable y bonos por fidelidad.\n` +
-            `▸ \`/eco weekly\` · Paga semanal garantizada para miembros activos del servidor.\n` +
-            `▸ \`/eco mendigar\` · Solicita caridad al servidor con una pequeña probabilidad de suerte.`,
+            `▸ \`/eco work\` · Jornada laboral (~30 min cd). | \`/eco extra\` · Horas extras (~10 min cd).\n` +
+            `▸ \`/eco daily\` · Recompensa diaria con racha. | \`/eco weekly\` · Paga semanal.\n` +
+            `▸ \`/eco mendigar\` · Solicita caridad con probabilidad de suerte.`,
           inline: false,
         },
         {
-          name: "🏪  Catálogo Oficial, Tiendas & Mercado P2P",
+          name: "🏪  Tiendas & Mercado P2P",
           value:
-            `▸ \`/tienda ver\` · Catálogo oficial por categorías interactivas (herramientas, consumibles y roles VIP).\n` +
-            `▸ \`/tienda comprar <item> [cant]\` · Adquiere suministros esenciales (admite fondos de cartera y banco).\n` +
-            `▸ \`/tienda vender <item> [cant]\` · Vende tus objetos al bot por monedas (soporta venta individual o masiva).\n` +
-            `▸ \`/oferta vender <usuario> <item> <precio>\` · Propón vender un objeto directamente a otro jugador por contrato privado.\n` +
-            `▸ \`/oferta comprar <usuario> <item> <precio>\` · Envía una oferta formal de compra a un usuario por un objeto de su inventario.\n` +
-            `▸ \`/subasta\` · Crea subastas públicas comunitarias con pujas en tiempo real o puja en las activas.\n` +
-            `▸ \`/mercado ver\` · Tablón de compraventa P2P entre usuarios del servidor.`,
+            `▸ \`/tienda ver|comprar|vender\` · Catálogo oficial por categorías interactivas.\n` +
+            `▸ \`/oferta vender|comprar <usuario> <item> <precio>\` · Contratos P2P directos.\n` +
+            `▸ \`/subasta\` · Subastas públicas con pujas en tiempo real.\n` +
+            `▸ \`/mercado ver\` · Tablón de compraventa entre usuarios.`,
           inline: false,
         },
         {
-          name: "📦  Inventario, Usos & Colecciones",
+          name: "📦  Inventario & Colecciones",
           value:
-            `▸ \`/eco inv [usuario]\` · Inspecciona tu mochila con todos tus ítems, herramientas y equipamiento.\n` +
-            `▸ \`/eco usar <item>\` · Utiliza consumibles activos de tu inventario (pociones, potenciadores, etc.).\n` +
-            `▸ \`/eco vender <item> [cant]\` · Vende cualquier ítem, captura o coleccionable al bot.\n` +
-            `▸ \`/galeria [usuario]\` · Vitrina de 28 colecciones de coleccionables. *(¡Completa cada álbum para ganar 10.000 🪙 de premio!)*`,
+            `▸ \`/eco inv [usuario]\` · Inspecciona tu mochila. | \`/eco usar <item>\` · Usa consumibles.\n` +
+            `▸ \`/eco vender <item> [cant]\` · Vende ítems y capturas. | \`/galeria [usuario]\` · Vitrina de colecciones.`,
           inline: false,
         },
         {
-          name: "🏠  Propiedades & Bienes Inmuebles (/propiedad)",
+          name: "🏠  Propiedades (/propiedad)",
           value:
-            `▸ \`/propiedad catalogo\` · Consulta las 7 propiedades disponibles (desde cobertizos a rascacielos).\n` +
-            `▸ \`/propiedad comprar <propiedad>\` · Adquiere un inmueble para generar ingresos pasivos cada 8 horas.\n` +
-            `▸ \`/propiedad mejorar <propiedad>\` · Sube el nivel de tu propiedad (hasta nivel 5) multiplicando sus rentas.\n` +
-            `▸ \`/propiedad cobrar\` · Recolecta todas las rentas acumuladas de tus propiedades.\n` +
-            `▸ \`/propiedad ver [usuario]\` / \`/propiedad vender <propiedad>\` · Inspecciona o liquida tus activos por el 50% de lo invertido.`,
+            `▸ \`/propiedad catalogo|comprar|mejorar|cobrar|ver|vender\` · 7 inmuebles con rentas pasivas cada 8h, mejoras (nv. 5) y venta.`,
           inline: false,
         },
         {
-          name: "💼  Profesiones & Trabajos Especializados (/trabajo)",
+          name: "💼  Profesiones (/trabajo)",
           value:
-            `▸ \`/trabajo catalogo\` · Explora los 9 oficios disponibles (Granjero, Minero, Pescador, Cocinero, Programador, Banquero, Crupier, Arquitecto, Magnate).\n` +
-            `▸ \`/trabajo elegir <profesion>\` · Selecciona tu carrera para desbloquear bonus pasivos temáticos.\n` +
-            `▸ \`/trabajo turno\` · Realiza un turno laboral especial para acumular XP de profesión y recompensas.\n` +
-            `▸ \`/trabajo perfil\` / \`/trabajo top\` · Revisa tu rango laboral, multiplicadores activos y clasificación de trabajadores.`,
+            `▸ \`/trabajo catalogo|elegir|turno|perfil|top\` · 9 oficios con bonus pasivos, turnos laborales y XP de profesión.`,
           inline: false,
         },
         {
-          name: "🃏  Colección de Cartas Gacha (/cartas)",
+          name: "🃏  Cartas Gacha (/cartas)",
           value:
-            `▸ \`/cartas abrir <sobre>\` · Abre sobres (Básico, Premium, Legendario, Mítico) con animaciones y garantías de rareza.\n` +
-            `▸ \`/cartas album [usuario]\` · Consulta tu álbum interactivo con más de 80 cartas divididas en 8 temáticas.\n` +
-            `▸ \`/cartas ver <carta>\` · Información detallada, rareza (de Común a Mítica) y arte de cualquier carta.\n` +
-            `▸ \`/cartas duplicadas\` / \`/cartas reciclar <carta>\` · Convierte cartas repetidas en NexoCoins.\n` +
-            `▸ \`/cartas intercambiar <usuario> <ofreces> <pides>\` · Sistema de trade P2P directo entre coleccionistas.`,
+            `▸ \`/cartas abrir|album|ver|duplicadas|reciclar|intercambiar\` · Sobres con garantías, +80 cartas en 8 temáticas, reciclaje y trade P2P.`,
           inline: false,
         },
         {
           name: "🎟️  Lotería Semanal (/loteria)",
           value:
-            `▸ \`/loteria comprar [cantidad]\` · Compra boletos (200 🪙 c/u, máx 10 por sorteo).\n` +
-            `▸ \`/loteria ver\` · Consulta el bote acumulativo actual y tus boletos para el próximo domingo.\n` +
-            `  └ **Sorteo automático:** Cada domingo a las 20:00 (hora peninsular española). ¡El 5% de las apuestas del casino alimenta el bote!`,
-          inline: false,
-        },
-        {
-          name: "💡  Consejo Financiero",
-          value:
-            `*Nunca dejes grandes sumas de dinero sueltas en tu cartera: los crímenes de otros jugadores pueden vaciarte el bolsillo. Utiliza depósitos bancarios a plazo fijo o invierte en la bolsa para proteger tu capital.*`,
+            `▸ \`/loteria comprar [cant]\` · Boletos (200 🪙 c/u, máx 10). | \`/loteria ver\` · Bote y boletos.\n` +
+            `  └ **Sorteo automático:** Cada domingo a las 20:00. ¡El 5% de las apuestas del casino alimenta el bote!`,
           inline: false,
         },
       );
@@ -456,20 +515,25 @@ export function renderHelpView(
           inline: false,
         },
         {
-          name: "🏰  Hermandades & Sistema de Clanes",
+          name: "🏰  Hermandades & Clanes (/rpg clan)",
           value:
             `▸ \`/rpg clan crear <nombre> <tag> [desc]\` · Funda tu propio clan oficial con escudo y descripción.\n` +
             `▸ \`/rpg clan info [nombre]\` · Consulta estadísticas, líder, nivel, victorias y lista de miembros.\n` +
             `▸ \`/rpg clan unirse <nombre>\` · Solicita entrar a una hermandad existente; el líder debe aprobar tu solicitud.\n` +
+            `▸ \`/rpg clan salir\` · Abandona tu clan actual de forma voluntaria.\n` +
+            `▸ \`/rpg clan top\` · Clasificación de los clanes más poderosos y laureados.`,
+          inline: false,
+        },
+        {
+          name: "👑  Gestión del Clan (Líderes & Oficiales)",
+          value:
             `▸ \`/rpg clan solicitudes\` · El líder consulta las solicitudes pendientes de ingreso.\n` +
             `▸ \`/rpg clan aprobar <usuario>\` · El líder aprueba una solicitud y añade al usuario como miembro.\n` +
             `▸ \`/rpg clan rechazar <usuario>\` · El líder rechaza una solicitud pendiente.\n` +
             `▸ \`/rpg clan rango <usuario> <nivel>\` · El líder asigna Oficial o Miembro.\n` +
-            `▸ \`/rpg clan expulsar <usuario>\` · El líder u oficial expulsa miembros; un oficial no puede expulsar a otro oficial.\n` +
-            `▸ \`/rpg clan salir\` · Abandona tu clan actual de forma voluntaria.\n` +
+            `▸ \`/rpg clan expulsar <usuario>\` · El líder u oficial expulsa miembros (un oficial no puede expulsar a otro oficial).\n` +
             `▸ \`/rpg clan transferir <usuario>\` · Traspasa el rango de líder a otro compañero del clan.\n` +
-            `▸ \`/rpg clan disolver <confirmar>\` · Disuelve permanentemente el clan (exclusivo para líderes).\n` +
-            `▸ \`/rpg clan top\` · Clasificación de los clanes más poderosos y laureados.`,
+            `▸ \`/rpg clan disolver <confirmar>\` · Disuelve permanentemente el clan (exclusivo para el líder).`,
           inline: false,
         },
         {
@@ -578,32 +642,57 @@ export function renderHelpView(
           inline: false,
         },
         {
-          name: "🎁  Sorteos, Eventos & Cumpleaños",
+          name: "🔢  Juego del Contador Comunitario (/contador)",
           value:
-            `▸ \`/sorteo start <premio> [duracion|fecha]\` · Staff: inicia un sorteo con duración relativa o fecha exacta \`YYYY-MM-DD HH:MM\` (hora de Madrid).\n` +
-            `▸ \`/sorteo editar <id> [premio] [ganadores] [fecha]\` · Staff: cambia el premio, los ganadores y/o el día y hora de finalización de un sorteo activo.\n` +
-            `▸ \`/sorteo end <id>\` · Staff: termina un sorteo y elige ganadores ponderando boosts e invitaciones.\n` +
-            `▸ \`/sorteo reroll <id>\` · Staff: vuelve a sortear los ganadores.\n` +
-            `▸ \`/sorteo list\` · Lista los sorteos activos.\n` +
-            `▸ \`/sorteo participantes <id>\` · Staff: consulta participantes, tickets, boosts e invitaciones.\n` +
-            `▸ \`/sorteo set-boosts <usuario> <cantidad>\` · Staff: ajusta manualmente la cantidad de boosts computables para sorteos.\n` +
-            `▸ \`/boosts lista\` · Muestra boosters activos, boosts registrados y tickets.\n` +
-            `▸ \`/boosts sync\` · Staff: sincroniza el estado activo de boosters con Discord.\n` +
-            `▸ \`/boosts set <usuario> <cantidad>\` · Staff: ajusta la cantidad individual de boosts cuando Discord no la expone.\n` +
-            `▸ \`/invitaciones ver [usuario]\` · Consulta invitaciones, boosts y participaciones en sorteos.\n` +
-            `▸ \`/invitaciones top\` · Ranking de invitadores.\n` +
-            `▸ \`/invitaciones bonus <usuario> <cantidad>\` · Staff: añade invitaciones bonus.\n` +
-            `▸ \`/evento crear <titulo> <cuando> [detalle] [cupo]\` · Staff: publica un evento con confirmación de asistencia (RSVP).\n` +
-            `▸ \`/evento lista\` · Consulta los próximos eventos.\n` +
-            `▸ \`/cumple poner <fecha>\` · Registra tu fecha de cumpleaños para recibir felicitaciones especiales.\n` +
-            `▸ \`/frase proponer <texto>\` · Propone una frase para futuras publicaciones.\n` +
-            `▸ \`/frase forzar\` · Staff: publica inmediatamente la frase del día.\n` +
-            `▸ \`/serverinfo\` · Estadísticas, métricas y detalles técnicos del servidor.\n` +
-            `▸ \`/miembros\` · Recuento demográfico de usuarios, bots y estados del servidor.`,
+            `▸ \`/contador estado\` · Consulta el número actual, el récord histórico del servidor y los salvavidas disponibles.\n` +
+            `▸ \`/contador top\` · Clasificación de los miembros con mayor cantidad de números acertados.\n` +
+            `▸ \`/contador salvavidas\` · Adquiere 1 Salvavidas 🛟 para el servidor (5.000 🪙) que rescata el conteo si alguien falla.\n` +
+            `▸ \`/contador set-canal <canal>\` · Staff: establece el canal oficial exclusivo para el juego de contar.\n` +
+            `▸ \`/contador fijar-panel\` · Staff: publica y fija la guía con reglas y récord en el canal del contador.`,
           inline: false,
         },
         {
-          name: "📊  Encuestas Interactivas",
+          name: "🚀  Bumps & Racha DISBOARD (/bump-racha)",
+          value:
+            `▸ \`/bump-racha\` · Consulta la racha actual de bumps en DISBOARD, temporizador de espera y top bump leaders.\n` +
+            `  └ **Recompensas en NexoCoins:** Gana **2.000 🪙** por bump en el canal de bumps, más **+2.000 🪙 acumulativos** por cada bump si encadenas racha.`,
+          inline: false,
+        },
+        {
+          name: "🎁  Sorteos Comunitarios (/sorteo)",
+          value:
+            `▸ \`/sorteo list\` · Lista de todos los sorteos activos en el servidor.\n` +
+            `▸ \`/sorteo start <premio> [duracion|fecha]\` · Staff: inicia un sorteo con duración relativa o fecha exacta \`YYYY-MM-DD HH:MM\` (Madrid).\n` +
+            `▸ \`/sorteo editar <id> [premio] [ganadores] [fecha]\` · Staff: edita premio, ganadores o fecha de un sorteo activo.\n` +
+            `▸ \`/sorteo end <id>\` · Staff: finaliza un sorteo y selecciona ganadores ponderando boosts e invitaciones.\n` +
+            `▸ \`/sorteo reroll <id>\` · Staff: vuelve a sortear los ganadores de un sorteo.\n` +
+            `▸ \`/sorteo participantes <id>\` · Staff: consulta participantes, tickets, boosts e invitaciones.\n` +
+            `▸ \`/sorteo set-boosts <usuario> <cantidad>\` · Staff: ajusta manualmente los boosts computables para sorteos.`,
+          inline: false,
+        },
+        {
+          name: "🚀  Boosts & Invitaciones (/boosts e /invitaciones)",
+          value:
+            `▸ \`/boosts lista\` · Muestra boosters activos, boosts registrados y tickets para sorteos.\n` +
+            `▸ \`/boosts sync\` · Staff: sincroniza el estado activo de boosters con Discord.\n` +
+            `▸ \`/boosts set <usuario> <cantidad>\` · Staff: ajusta la cantidad individual de boosts.\n` +
+            `▸ \`/invitaciones ver [usuario]\` · Consulta invitaciones reales, boosts y participaciones.\n` +
+            `▸ \`/invitaciones top\` · Ranking de los mayores invitadores del servidor.\n` +
+            `▸ \`/invitaciones bonus <usuario> <cantidad>\` · Staff: añade invitaciones bonus a un miembro.`,
+          inline: false,
+        },
+        {
+          name: "📅  Eventos, Cumpleaños & Dinámicas",
+          value:
+            `▸ \`/evento lista\` · Consulta los próximos eventos de la comunidad.\n` +
+            `▸ \`/evento crear <titulo> <cuando> [detalle] [cupo]\` · Staff: publica un evento con confirmación de asistencia (RSVP).\n` +
+            `▸ \`/cumple poner <fecha>\` · Registra tu cumpleaños para recibir felicitaciones especiales.\n` +
+            `▸ \`/frase proponer <texto>\` · Propone una frase o cita inspiradora para futuras publicaciones.\n` +
+            `▸ \`/frase forzar\` · Staff: publica inmediatamente la frase del día en el canal oficial.`,
+          inline: false,
+        },
+        {
+          name: "📊  Encuestas Interactivas (/encuesta)",
           value:
             `▸ \`/encuesta crear <pregunta> <tipo> <opcion1> <opcion2> [opcion3..15] [duracion]\` · Crea encuestas interactivas con hasta 15 opciones, votación única o múltiple y cierre automático programable.\n` +
             `▸ \`/encuesta cerrar <id>\` · Cierra una encuesta activa y proclama las opciones ganadoras (autor o Staff).\n` +
@@ -620,6 +709,13 @@ export function renderHelpView(
             `  └ **Ventaja:** +10% de bonus en \`/eco work\` si tu pareja está activa en la economía.`,
           inline: false,
         },
+        {
+          name: "🌐  Métricas & Estadísticas del Servidor",
+          value:
+            `▸ \`/serverinfo\` · Estadísticas completas, métricas, canales y detalles técnicos del servidor.\n` +
+            `▸ \`/miembros\` · Recuento demográfico de usuarios, bots y estados del servidor en vivo.`,
+          inline: false,
+        },
       );
   } else if (selectedCat === "diversion") {
     embed
@@ -630,16 +726,25 @@ export function renderHelpView(
       )
       .addFields(
         {
-          name: "🐾  Mascotas Virtuales & Expediciones (/mascota)",
+          name: "🐾  Colección & Cuidados de Mascotas (/mascota)",
           value:
             `▸ \`/mascota tienda\` · Catálogo de especies (Gato 🐱, Shiba 🐶, Zorro 🦊, Búho 🦉 y Dragón 🐉) con bonificaciones pasivas.\n` +
-            `▸ \`/mascota adoptar <especie> <nombre>\` · Adopta y ponle nombre propio a tu mascota.\n` +
-            `▸ \`/mascota perfil [usuario]\` · Consulta nivel, EXP, barra de felicidad (❤️❤️❤️❤️🤍) y estado.\n` +
-            `▸ \`/mascota alimentar\` · Dale comida premium para subir su felicidad y ganar EXP (200 🪙).\n` +
-            `▸ \`/mascota acariciar\` · Mímala y juega con ella gratis para aumentar su afecto y EXP.\n` +
-            `▸ \`/mascota expedicion <duracion>\` · Envíala a explorar (1h, 4h, 8h o 24h) para recolectar NexoCoins e ítems valiosos.\n` +
-            `▸ \`/mascota reclamar\` · Cobra el botín acumulado y la experiencia al terminar la expedición.\n` +
-            `▸ \`/mascota renombrar <nombre>\` · Cambia el nombre de tu mascota en cualquier momento.`,
+            `▸ \`/mascota adoptar <especie> <nombre>\` · Adopta un nuevo compañero (¡puedes coleccionar hasta 10 mascotas simultáneamente!).\n` +
+            `▸ \`/mascota lista [usuario]\` · Consulta la lista completa de todas las mascotas en tu colección y su estado.\n` +
+            `▸ \`/mascota seleccionar <mascota>\` · Establece cuál de tus mascotas es tu compañera activa.\n` +
+            `▸ \`/mascota perfil [usuario] [mascota]\` · Consulta nivel, EXP, barra de felicidad (❤️❤️❤️❤️🤍) y estado.\n` +
+            `▸ \`/mascota alimentar [mascota]\` · Dale comida premium para subir su felicidad y ganar EXP (200 🪙).\n` +
+            `▸ \`/mascota acariciar [mascota]\` · Mímala y juega con ella gratis para aumentar su afecto y EXP.\n` +
+            `▸ \`/mascota renombrar <nombre> [mascota]\` · Cambia el nombre de cualquier mascota.\n` +
+            `▸ \`/mascota liberar <mascota>\` · Libera a una mascota a la naturaleza.`,
+          inline: false,
+        },
+        {
+          name: "🗺️  Expediciones & Aventuras en Paralelo (/mascota)",
+          value:
+            `▸ \`/mascota expedicion <duracion> [mascota]\` · Envíalas a explorar (1h, 4h, 8h o 24h) para recolectar NexoCoins e ítems valiosos.\n` +
+            `▸ \`/mascota reclamar [mascota]\` · Cobra el botín y EXP.\n` +
+            `  └ **Reclamación simultánea:** Si ejecutas \`/mascota reclamar\` sin indicar mascota, ¡reclama todas las expediciones finalizadas a la vez!`,
           inline: false,
         },
         {

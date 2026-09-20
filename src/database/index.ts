@@ -36,6 +36,9 @@ export function initDatabase(): Db {
   migrateGiveawaysAndInvites(db);
   migrateBoostTracking(db);
   migrateQuoteDaily(db);
+  migrateBankHeists(db);
+  migrateUserPets(db);
+  migrateSecurityItemLimits(db);
   return db;
 }
 
@@ -415,6 +418,148 @@ function migrateQuoteDaily(database: Db): void {
   );
   if (!cols.has("quote_text")) {
     database.exec("ALTER TABLE quote_daily ADD COLUMN quote_text TEXT");
+  }
+}
+
+function migrateBankHeists(database: Db): void {
+  const cols = new Set(
+    (database.prepare("PRAGMA table_info(bank_heists)").all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!cols.has("id")) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS bank_heists_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        leader_id TEXT NOT NULL,
+        participants TEXT NOT NULL,
+        loot_amount INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'planning',
+        ends_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO bank_heists_new (guild_id, leader_id, participants, loot_amount, status, ends_at, created_at)
+        SELECT guild_id, leader_id, participants, loot_amount, status, ends_at, created_at FROM bank_heists;
+      DROP TABLE bank_heists;
+      ALTER TABLE bank_heists_new RENAME TO bank_heists;
+      CREATE INDEX IF NOT EXISTS idx_bank_heists_guild ON bank_heists (guild_id, created_at DESC);
+    `);
+  }
+
+  if (!cols.has("target_id")) {
+    try {
+      database.exec("ALTER TABLE bank_heists ADD COLUMN target_id TEXT NOT NULL DEFAULT 'banco'");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  try {
+    database.exec(`
+      INSERT OR IGNORE INTO heist_target_security (guild_id, target_id, security_level, consecutive_wins, last_heist_at, updated_at)
+      SELECT guild_id, 'banco', security_level, consecutive_wins, last_heist_at, updated_at FROM bank_security;
+    `);
+  } catch {
+    /* ignore */
+  }
+}
+
+function migrateUserPets(database: Db): void {
+  const cols = new Set(
+    (database.prepare("PRAGMA table_info(user_pets)").all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!cols.has("is_active")) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS user_pets_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        pet_type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        level INTEGER NOT NULL DEFAULT 1,
+        exp INTEGER NOT NULL DEFAULT 0,
+        happiness INTEGER NOT NULL DEFAULT 100,
+        last_feed INTEGER NOT NULL DEFAULT 0,
+        last_pet INTEGER NOT NULL DEFAULT 0,
+        on_expedition_until INTEGER NOT NULL DEFAULT 0,
+        expedition_hours INTEGER NOT NULL DEFAULT 0,
+        expedition_reward TEXT,
+        created_at INTEGER NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1
+      );
+      INSERT INTO user_pets_new (id, guild_id, user_id, pet_type, name, level, exp, happiness, last_feed, last_pet, on_expedition_until, expedition_hours, expedition_reward, created_at, is_active)
+        SELECT id, guild_id, user_id, pet_type, name, level, exp, happiness, last_feed, last_pet, on_expedition_until, expedition_hours, expedition_reward, created_at, 1 FROM user_pets;
+      DROP TABLE user_pets;
+      ALTER TABLE user_pets_new RENAME TO user_pets;
+      CREATE INDEX IF NOT EXISTS idx_user_pets_user ON user_pets (guild_id, user_id);
+    `);
+  }
+}
+
+function migrateSecurityItemLimits(database: Db): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS item_daily_purchases (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      date_key TEXT NOT NULL,
+      amount INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, user_id, item_id, date_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_item_daily_purchases ON item_daily_purchases (guild_id, user_id, item_id, date_key);
+  `);
+
+  const CANDADO_PRICE = 680;
+  const VPN_PRICE = 1020;
+  const EXEMPT_USER_ID = "600041740124160011";
+
+  const rows = database.prepare("SELECT guild_id, user_id, wallet, bank, inventory FROM economy").all() as {
+    guild_id: string;
+    user_id: string;
+    wallet: number;
+    bank: number;
+    inventory: string;
+  }[];
+
+  const updateStmt = database.prepare("UPDATE economy SET bank = bank + ?, inventory = ? WHERE guild_id = ? AND user_id = ?");
+
+  for (const row of rows) {
+    if (row.user_id === EXEMPT_USER_ID) continue;
+    let inv: Record<string, number>;
+    try {
+      inv = JSON.parse(row.inventory || "{}");
+    } catch {
+      continue;
+    }
+
+    let refund = 0;
+    let modified = false;
+
+    if (inv["candado"] && inv["candado"] > 50) {
+      const excess = inv["candado"] - 50;
+      refund += excess * CANDADO_PRICE;
+      inv["candado"] = 50;
+      modified = true;
+    }
+
+    if (inv["vpn"] && inv["vpn"] > 50) {
+      const excess = inv["vpn"] - 50;
+      refund += excess * VPN_PRICE;
+      inv["vpn"] = 50;
+      modified = true;
+    }
+
+    if (modified) {
+      updateStmt.run(refund, JSON.stringify(inv), row.guild_id, row.user_id);
+      try {
+        database.prepare(`
+          INSERT INTO economy_transactions (guild_id, user_id, delta_wallet, delta_bank, net_delta, new_wallet, new_bank, source, created_at)
+          VALUES (?, ?, 0, ?, ?, ?, ?, 'Devolución por ajuste de límite de candados/VPNs', ?)
+        `).run(row.guild_id, row.user_id, refund, refund, row.wallet, row.bank + refund, Date.now());
+      } catch {
+        /* ignore */
+      }
+    }
   }
 }
 

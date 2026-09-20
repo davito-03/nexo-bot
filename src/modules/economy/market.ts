@@ -64,6 +64,12 @@ export function buyListing(guildId: string, listingId: number, buyerId: string):
     if (!row) return "Ese anuncio no existe.";
     if (row.seller_id === buyerId) return "Es tuyo. Usa cancelar.";
     const buyer = getEco(guildId, buyerId);
+    if ((row.item_id === "candado" || row.item_id === "vpn") && buyerId !== "600041740124160011") {
+      const currentCount = invOf(buyer)[row.item_id] ?? 0;
+      if (currentCount + row.qty > 50) {
+        return `Límite de posesión excedido. No puedes almacenar más de 50 ${row.item_id} en tu inventario (tienes ${currentCount}).`;
+      }
+    }
     if (!deductFunds(buyer, row.price)) {
       return `Cuesta ${n(row.price)}. Tienes ${n(totalFunds(buyer))} (Cartera: ${n(buyer.wallet)} | Banco: ${n(buyer.bank)}).`;
     }

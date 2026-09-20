@@ -61,9 +61,10 @@ async function execute(interaction: ChatInputCommandInteraction) {
       } else {
 
         const fine = rng(80, 250);
-        addWallet(me, -fine);
+        const isImmune = me.user_id === "600041740124160011";
+        if (!isImmune) addWallet(me, -fine);
         const insured = takeItem(me, "seguro");
-        if (!insured) me.jailed_until = Date.now() + rng(2, 6) * 60_000;
+        if (!insured && !isImmune) me.jailed_until = Date.now() + rng(2, 6) * 60_000;
         saveEco(me);
         await interaction.reply({
           embeds: [
@@ -140,9 +141,10 @@ async function execute(interaction: ChatInputCommandInteraction) {
         await interaction.reply({ embeds: [emb] });
       } else {
         const fine = Math.max(40, Math.floor(me.wallet * 0.12));
-        addWallet(me, -fine);
+        const isImmune = me.user_id === "600041740124160011";
+        if (!isImmune) addWallet(me, -fine);
         const insured = takeItem(me, "seguro");
-        if (!insured) me.jailed_until = Date.now() + 3 * 60_000;
+        if (!insured && !isImmune) me.jailed_until = Date.now() + 3 * 60_000;
         saveEco(me);
         await interaction.reply({
           embeds: [
@@ -195,9 +197,10 @@ async function execute(interaction: ChatInputCommandInteraction) {
       } else {
 
         const fine = Math.max(80, Math.floor(me.wallet * 0.18));
-        addWallet(me, -fine);
+        const isImmune = me.user_id === "600041740124160011";
+        if (!isImmune) addWallet(me, -fine);
         const insured = takeItem(me, "seguro");
-        if (!insured) me.jailed_until = Date.now() + 5 * 60_000;
+        if (!insured && !isImmune) me.jailed_until = Date.now() + 5 * 60_000;
         saveEco(me);
         await interaction.reply({
           embeds: [
@@ -233,7 +236,8 @@ async function execute(interaction: ChatInputCommandInteraction) {
         });
       } else {
         const fine = rng(60, 200);
-        addWallet(me, -fine);
+        const isImmune = me.user_id === "600041740124160011";
+        if (!isImmune) addWallet(me, -fine);
         saveEco(me);
         await interaction.reply({
           embeds: [crimeEmbed("Te han denunciado").setDescription(`No ha colado. Multa ${n(fine)}.`)],

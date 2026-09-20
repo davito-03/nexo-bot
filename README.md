@@ -9,15 +9,17 @@ Stack: **TypeScript + discord.js v14 + SQLite**. Es el que mejor aguanta un bot 
 | Módulo | Qué hace |
 | --- | --- |
 | Moderación | `/warn` `/kick` `/ban` `/timeout` `/mod` — warns, kicks, bans, tempbans, timeouts, softban, historial y casos. Escalado automático de warns. |
-| Logs | Mensajes, miembros, voz, servidor, moderación, **registro de auditoría**, tickets, sanciones, joins (con invitación) y boosts. |
+| Logs | `/logs` asigna canales. Deletes/edits, voz, audit log, tickets, sanciones, joins y boosts. |
 | Miembros | Registro persistente de altas/bajas, `/miembros`. |
 | Niveles | XP por chat (cooldown) y por **minutos en VC**. Tarjetas, `/nivel rank` `/nivel top`, roles por nivel. |
 | VoiceMaster | Canal **➕ Crear sala**, panel con lock/hide/rename/límite/claim/transfer/kick. |
 | Tickets | Panel por categorías, claim/cierre, transcripciones HTML, añadir/quitar usuarios. |
 | IA de soporte | **Neko** responde tickets con un pool (Groq → Gemini → OpenRouter → Cohere → Cloudflare → OpenAI mini) y memoria por ticket. El prompt de normas se carga con `/ticket ia prompt:`. |
+| Economía | nexocoin: trabajo, crimen, tienda, P2P, bolsa, minería, propiedades. Ledger de movimientos. |
+| Asaltos | `/asalto` cooperativo: 7 roles, objetivos (banco, casino, mansión…), QTE, HUD Canvas, mercado negro y reputación. |
 | Giveaways | `/sorteo` con requisitos de rol, nivel o booster. |
 | Backup | ZIP con roles, canales, emojis, miembros, bans, sanciones, niveles, tickets, config y mensajes recientes. Restauración y backups automáticos. |
-| Entretenimiento | `/fun` (8ball, gato, neko, ship, trivia, wyr…) y `/rps`. |
+| Entretenimiento | `/fun` (8ball, gato, neko, ship, trivia, wyr…) y `/rps`. Mascotas y RPG. |
 | Bienvenida / boost | Tarjetas con la estética gatitos anime. |
 
 ## CI

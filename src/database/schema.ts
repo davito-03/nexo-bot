@@ -741,8 +741,10 @@ CREATE TABLE IF NOT EXISTS user_pets (
   expedition_hours INTEGER NOT NULL DEFAULT 0,
   expedition_reward TEXT,
   created_at INTEGER NOT NULL,
-  UNIQUE (guild_id, user_id)
+  is_active INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_user_pets_user ON user_pets (guild_id, user_id);
+
 
 CREATE TABLE IF NOT EXISTS voice_rewards_claimed (
   guild_id TEXT NOT NULL,
@@ -755,7 +757,8 @@ CREATE TABLE IF NOT EXISTS voice_rewards_claimed (
 );
 
 CREATE TABLE IF NOT EXISTS bank_heists (
-  guild_id TEXT PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
   leader_id TEXT NOT NULL,
   participants TEXT NOT NULL,
   loot_amount INTEGER NOT NULL DEFAULT 0,
@@ -763,6 +766,7 @@ CREATE TABLE IF NOT EXISTS bank_heists (
   ends_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_bank_heists_guild ON bank_heists (guild_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS scheduled_unpins (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -876,5 +880,70 @@ CREATE TABLE IF NOT EXISTS selfrole_options (
   PRIMARY KEY (panel_id, role_id),
   FOREIGN KEY (panel_id) REFERENCES selfrole_panels(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS bank_security (
+  guild_id TEXT PRIMARY KEY,
+  security_level INTEGER NOT NULL DEFAULT 1,
+  consecutive_wins INTEGER NOT NULL DEFAULT 0,
+  last_heist_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_heist_profiles (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  total_heists INTEGER NOT NULL DEFAULT 0,
+  heists_won INTEGER NOT NULL DEFAULT 0,
+  total_loot INTEGER NOT NULL DEFAULT 0,
+  reputation INTEGER NOT NULL DEFAULT 0,
+  active_role TEXT NOT NULL DEFAULT 'tirador',
+  PRIMARY KEY (guild_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_heist_profiles_rep ON user_heist_profiles (guild_id, reputation DESC);
+
+CREATE TABLE IF NOT EXISTS user_heist_roles (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role_id TEXT NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  xp INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id, role_id)
+);
+
+CREATE TABLE IF NOT EXISTS economy_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  delta_wallet INTEGER NOT NULL DEFAULT 0,
+  delta_bank INTEGER NOT NULL DEFAULT 0,
+  net_delta INTEGER NOT NULL DEFAULT 0,
+  new_wallet INTEGER NOT NULL DEFAULT 0,
+  new_bank INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eco_tx_guild_user ON economy_transactions (guild_id, user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS heist_target_security (
+  guild_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  security_level INTEGER NOT NULL DEFAULT 1,
+  consecutive_wins INTEGER NOT NULL DEFAULT 0,
+  last_heist_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_heist_target_sec ON heist_target_security (guild_id, target_id);
+
+CREATE TABLE IF NOT EXISTS item_daily_purchases (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  date_key TEXT NOT NULL,
+  amount INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, user_id, item_id, date_key)
+);
+CREATE INDEX IF NOT EXISTS idx_item_daily_purchases ON item_daily_purchases (guild_id, user_id, item_id, date_key);
 `;
 

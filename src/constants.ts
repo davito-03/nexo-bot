@@ -40,6 +40,8 @@ export const BUMP_PING_ROLE_ID = "1546612961135829073";
 export const BOOST_CHANNEL_ID = "1394312684891279460";
 /** Canal oficial del juego de contar (Contador). */
 export const COUNTING_CHANNEL_ID = "1548136070577790996";
+/** Canal de registro de todas las transacciones financieras de economía. */
+export const TRANSACTION_LOG_CHANNEL_ID = "1551201402888523836";
 
 /** Usuarios con ventaja oculta en el minijuego del globo */
 export const GLOBO_BLESSED_USERS = new Set([

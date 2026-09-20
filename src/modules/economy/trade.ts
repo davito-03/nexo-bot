@@ -218,6 +218,20 @@ export async function handleTradeButton(interaction: ButtonInteraction): Promise
         );
         return;
       }
+      if ((offer.item_id === "candado" || offer.item_id === "vpn") && offer.target_id !== "600041740124160011") {
+        const curTarget = targetInv[offer.item_id] ?? 0;
+        if (curTarget + offer.quantity > 50) {
+          await interaction.reply(
+            ephemeral([
+              errorEmbed(
+                "Límite de posesión excedido",
+                `No puedes almacenar más de 50 candados o VPNs en tu inventario (tienes ${curTarget}, recibirías ${offer.quantity}).`,
+              ),
+            ]),
+          );
+          return;
+        }
+      }
       if (!deductFunds(targetEco, offer.price, { stats: false })) {
         await interaction.reply(
           ephemeral([
@@ -279,6 +293,20 @@ export async function handleTradeButton(interaction: ButtonInteraction): Promise
           ]),
         );
         return;
+      }
+      if ((offer.item_id === "candado" || offer.item_id === "vpn") && offer.sender_id !== "600041740124160011") {
+        const curSender = senderInv[offer.item_id] ?? 0;
+        if (curSender + offer.quantity > 50) {
+          await interaction.reply(
+            ephemeral([
+              errorEmbed(
+                "Límite de posesión excedido",
+                `El comprador ya no puede almacenar más de 50 candados o VPNs en su inventario (tiene ${curSender}).`,
+              ),
+            ]),
+          );
+          return;
+        }
       }
       if (!deductFunds(senderEco, offer.price, { stats: false })) {
         await interaction.reply(

@@ -27,11 +27,12 @@ Los events de Discord son delgados. La lógica está en motores:
 | Niveles | `levels/engine.ts` | XP chat/VC, ×1.5 boosters, Canvas |
 | Tickets | `tickets/*` | Categorías, Neko, transcripts HTML |
 | IA | `ai/client.ts`, `memory.ts` | Failover de proveedores + memoria por ticket |
-| Economía | `economy/*` | nexocoin, tienda, P2P, trading, impuestos |
+| Economía | `economy/*` | nexocoin, tienda, P2P, trading, impuestos, ledger (`transactionLogger.ts`) |
+| Asaltos | `economy/heist.ts`, `heistEngine.ts`, `heistQTE.ts`, `heistCanvas.ts` | `/asalto`: roles, objetivos, QTE, HUD |
 | Backup | `backup/create.ts`, `restore.ts` | ZIP restaurable |
-| Misiones / RPG / pets | `missions`, `rpg`, `pets` | Engagement a largo plazo |
+| Misiones / RPG / pets | `missions`, `rpg`, `pets` | Engagement a largo plazo; varias mascotas por usuario |
 | Comunidad | `community/*`, `bump`, `counting` | Cumples, DISBOARD, juego de contar |
-| Logs | `logs/register.ts` | Audit + deletes + voz |
+| Logs | `logs/register.ts`, `logs/dispatch.ts` | Audit + deletes + voz; `/logs` para mapear canales |
 
 ## Pool de IA (Neko)
 
@@ -39,7 +40,7 @@ Orden en `buildAttempts`: local (Ollama) → Groq → Gemini (varias claves) →
 
 ## Schema
 
-`database/schema.ts` declara el modelo (casos, tickets, economía, RPG, pets, misiones, counting, invites, boosts…). WAL y foreign keys.
+`database/schema.ts` declara el modelo (casos, tickets, economía, asaltos, transacciones, RPG, pets, misiones, counting, invites, boosts…). WAL y foreign keys.
 
 ## Docker
 

@@ -201,6 +201,10 @@ export function deleteCustomItem(guildId: string, itemId: string): boolean {
   return info.changes > 0;
 }
 
+export function todayDateKey(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
+}
+
 export async function buyCatalogItem(
   member: GuildMember,
   itemId: string,
@@ -224,6 +228,54 @@ export async function buyCatalogItem(
   }
   if (item.type === "role" && item.roleId && member.roles.cache.has(item.roleId)) {
     return { ok: false, title: "Ya tienes el rol", detail: `Ya llevas <@&${item.roleId}>.` };
+  }
+
+  // Comprobar límites de candados y VPNs (máx 10 al día, máx 50 en inventario), excepto usuario inmune
+  const isSecurityItem = item.id === "candado" || item.id === "vpn";
+  const isExempt = member.id === "600041740124160011";
+
+  if (isSecurityItem && !isExempt) {
+    const inv = invOf(eco);
+    const currentHolding = inv[item.id] ?? 0;
+    if (currentHolding >= 50) {
+      return {
+        ok: false,
+        title: "Límite de posesión alcanzado",
+        detail: `Ya tienes **${currentHolding} ${item.name}** en tu inventario. El límite máximo de posesión es de **50 unidades**.`,
+      };
+    }
+    if (currentHolding + amount > 50) {
+      const maxCanHold = 50 - currentHolding;
+      return {
+        ok: false,
+        title: "Límite de posesión excedido",
+        detail: `No puedes tener más de **50 ${item.name}**. Tienes **${currentHolding}**, por lo que solo puedes adquirir hasta **${maxCanHold}** unidades más.`,
+      };
+    }
+
+    const dateKey = todayDateKey();
+    const purchasedRow = getDb()
+      .prepare(
+        "SELECT amount FROM item_daily_purchases WHERE guild_id = ? AND user_id = ? AND item_id = ? AND date_key = ?",
+      )
+      .get(member.guild.id, member.id, item.id, dateKey) as { amount: number } | undefined;
+    const purchasedToday = purchasedRow?.amount ?? 0;
+
+    if (purchasedToday >= 10) {
+      return {
+        ok: false,
+        title: "Límite diario alcanzado",
+        detail: `Has alcanzado el límite de compra de **10 ${item.name} al día**. Vuelve mañana para adquirir más.`,
+      };
+    }
+    if (purchasedToday + amount > 10) {
+      const maxCanBuyToday = 10 - purchasedToday;
+      return {
+        ok: false,
+        title: "Límite diario excedido",
+        detail: `Solo puedes comprar hasta **${maxCanBuyToday} ${item.name}** más hoy (límite: 10 al día, ya has comprado ${purchasedToday}).`,
+      };
+    }
   }
 
   if (item.type === "role" && item.roleId) {
@@ -269,6 +321,20 @@ export async function buyCatalogItem(
   }
   giveItem(eco, item.id, amount);
   saveEco(eco);
+
+  if (isSecurityItem && !isExempt) {
+    const dateKey = todayDateKey();
+    getDb()
+      .prepare(
+        `INSERT INTO item_daily_purchases (guild_id, user_id, item_id, date_key, amount, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(guild_id, user_id, item_id, date_key) DO UPDATE SET
+           amount = amount + excluded.amount,
+           updated_at = excluded.updated_at`,
+      )
+      .run(member.guild.id, member.id, item.id, dateKey, amount, Date.now());
+  }
+
   return {
     ok: true,
     title: "Compra",

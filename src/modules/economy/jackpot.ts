@@ -68,7 +68,7 @@ export function winJackpot(guildId: string, userId: string, userTag: string): nu
     // Reset to base jackpot
     db.prepare(
       "UPDATE casino_jackpot SET amount = ?, last_winner_id = ?, last_winner_tag = ?, last_won_amount = ?, last_won_at = ?, updated_at = ? WHERE guild_id = ?",
-    ).run(DEFAULT_BASE_JACKPOT, userId, userTag, prize, now, guildId);
+    ).run(DEFAULT_BASE_JACKPOT, userId, userTag, prize, now, now, guildId);
 
     // Give prize to user
     const eco = getEco(guildId, userId);
