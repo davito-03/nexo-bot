@@ -334,21 +334,7 @@ export function getBaseMiningTaxRate(tier: number): number {
 /** Tasa de impuesto de minería efectiva para un usuario */
 export function getMiningTaxRate(guildId: string, userId: string, tier: number): number {
   if (userId === TAX_BENEFICIARY_ID) return 0; // Exento de impuestos
-  let rate = getBaseMiningTaxRate(tier);
-
-  // Recargo especial del 30% si está activo en la base de datos
-  try {
-    const surcharge = getDb()
-      .prepare("SELECT days_charged, max_days, extra_rate FROM special_tax_surcharges WHERE guild_id = ? AND user_id = ?")
-      .get(guildId, userId) as { days_charged: number; max_days: number; extra_rate: number } | undefined;
-    if (surcharge && surcharge.days_charged < surcharge.max_days) {
-      rate += surcharge.extra_rate;
-    }
-  } catch {
-    /* ignorar si la tabla aún no está inicializada */
-  }
-
-  return rate;
+  return getBaseMiningTaxRate(tier);
 }
 
 export const SUPPORTED_MINING_ASSETS = [
@@ -492,9 +478,12 @@ export function claimMinerEarnings(
     }
   }
 
-  // Transferir impuestos recaudados con reparto oficial (30% beneficiario, 50% roles Staff/Owner, 20% más pobres)
+  // Reparto del canon de minería: 50% quemado de la economía como coste operativo, 50% redistribuido
   if (taxPaid > 0 && userId !== TAX_BENEFICIARY_ID) {
-    distributeTaxFunds(guildId, taxPaid, `Minería (<@${userId}>)`);
+    const toDistribute = Math.floor(taxPaid * 0.5);
+    if (toDistribute > 0) {
+      distributeTaxFunds(guildId, toDistribute, `Minería (<@${userId}>)`);
+    }
   }
 
   miner.total_mined += netCoins;

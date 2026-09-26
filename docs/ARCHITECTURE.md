@@ -28,10 +28,14 @@ Los events de Discord son delgados. La lógica está en motores:
 | Tickets | `tickets/*` | Categorías, Neko, transcripts HTML |
 | IA | `ai/client.ts`, `memory.ts` | Failover de proveedores + memoria por ticket |
 | Economía | `economy/*` | nexocoin, tienda, P2P, trading, impuestos, ledger (`transactionLogger.ts`) |
-| Asaltos | `economy/heist.ts`, `heistEngine.ts`, `heistQTE.ts`, `heistCanvas.ts` | `/asalto`: roles, objetivos, QTE, HUD |
+| Asaltos | `economy/heist*.ts` | `/asalto`: roles, QTE, HUD, reliquias, minijuegos, eventos |
+| Bandas / policía | `economy/gangs.ts`, `police.ts` | `/banda` y `/policia` |
+| Pokémon | `pets/*` + `commands/fun/pokemon.ts` | Captura, gimnasios, duelos, evolución, intercambio |
+| Perfil | `community/profileCard.ts`, `reputation.ts` | `/perfil` y `/rep` |
+| Tienda digital | `store/*` | Panel de pedidos (`/tienda-digital`) |
 | Backup | `backup/create.ts`, `restore.ts` | ZIP restaurable |
-| Misiones / RPG / pets | `missions`, `rpg`, `pets` | Engagement a largo plazo; varias mascotas por usuario |
-| Comunidad | `community/*`, `bump`, `counting` | Cumples, DISBOARD, juego de contar |
+| Misiones / RPG | `missions`, `rpg` | Engagement a largo plazo |
+| Comunidad | `community/*`, `bump`, `counting` | Cumples, DISBOARD, contar, tres en raya, trivia |
 | Logs | `logs/register.ts`, `logs/dispatch.ts` | Audit + deletes + voz; `/logs` para mapear canales |
 
 ## Pool de IA (Neko)

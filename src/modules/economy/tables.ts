@@ -15,6 +15,7 @@ import { COLORS, GLOBO_BLESSED_USERS } from "../../constants.js";
 import { casinoEmbed, errorEmbed, ephemeral, successEmbed } from "../../utils/embeds.js";
 import { addWallet, getEco, jailCheck, n, rng, saveEco } from "./engine.js";
 import { collectLoan } from "./loans.js";
+import { sleep } from "../../utils/time.js";
 
 type ColorBet = "rojo" | "negro" | "verde";
 
@@ -274,9 +275,26 @@ async function resolveRoulette(id: string): Promise<void> {
   if (!t || t.kind !== "roulette" || t.closed) return;
   t.closed = true;
   try {
+    await t.message
+      .edit({
+        embeds: [
+          casinoEmbed("Mesa de ruleta · ¡Girando!")
+            .setColor(COLORS.casino)
+            .setDescription(
+              "🎡 *¡No va más! La ruleta gira a toda velocidad...*\n" +
+              "🔴 ⚫ 🟢 🔴 ⚫ ⚪ *La bola de marfil rebota sobre los casilleros...*"
+            ),
+        ],
+        components: [],
+      })
+      .catch(() => null);
+
+    await sleep(1100);
+
     const spin = rng(0, 14);
     const landed: ColorBet = spin === 0 ? "verde" : spin <= 7 ? "rojo" : "negro";
     const payout = landed === "verde" ? 14 : 2;
+    const colorEmoji = landed === "verde" ? "🟢" : landed === "rojo" ? "🔴" : "⚫";
     const winners: string[] = [];
     for (const [uid_, b] of t.bets) {
       if (b.color === landed) {
@@ -290,7 +308,8 @@ async function resolveRoulette(id: string): Promise<void> {
       .edit({
         embeds: [
           rouletteEmbed(t, `Bola en **${landed}**.`).setColor(COLORS.casino).setDescription(
-            `Bola en **${landed}** (${payout}x).\n\n${winners.length ? `**Ganan:**\n${winners.join("\n")}` : "Nadie acertó. La casa se queda el bote."}`,
+            `🎯 **¡La bola ha caído en ${landed.toUpperCase()} ${colorEmoji} (${payout}x)!**\n\n` +
+            `${winners.length ? `🎉 **Ganadores:**\n${winners.join("\n")}` : "💀 Nadie acertó el color. La casa se queda el bote."}`
           ),
         ],
         components: [],
@@ -611,6 +630,24 @@ async function resolveJackpot(id: string): Promise<void> {
       await t.message.edit({ embeds: [casinoEmbed("Bote").setDescription("Nadie entró.")], components: [] }).catch(() => null);
       return;
     }
+
+    await t.message
+      .edit({
+        embeds: [
+          casinoEmbed("Bote compartido · Sorteando")
+            .setColor(COLORS.casino)
+            .setDescription(
+              `🎰 *¡Bote cerrado! Girando la rueda de la fortuna...*\n` +
+              `💰 Bote acumulado: **${n(pot)}**\n` +
+              `🎲 *Calculando probabilidades y extrayendo papeleta ganadora...*`
+            ),
+        ],
+        components: [],
+      })
+      .catch(() => null);
+
+    await sleep(1200);
+
     let cursor = Math.random() * pot;
     let winnerId = t.players.keys().next().value as string;
     for (const [uid_, p] of t.players) {
@@ -624,12 +661,17 @@ async function resolveJackpot(id: string): Promise<void> {
     addWallet(eco, pot);
     saveEco(eco);
     const tag = t.players.get(winnerId)?.tag ?? winnerId;
+    const pct = Math.round(((t.players.get(winnerId)?.amount ?? 0) / pot) * 100);
     await t.message
       .edit({
         embeds: [
-          casinoEmbed("Bote · ganador")
+          casinoEmbed("Bote compartido · ¡Ganador!")
             .setColor(COLORS.success)
-            .setDescription(`**${tag}** se lleva ${n(pot)}.`),
+            .setDescription(
+              `🏆 **¡¡TENEMOS GANADOR DEL BOTE!!** 🏆\n\n` +
+              `🎉 **${tag}** se lleva el bote acumulado de **${n(pot)}** con un **${pct}%** de papeletas.\n\n` +
+              `💰 Saldo acreditado automáticamente.`
+            ),
         ],
         components: [],
       })
@@ -721,13 +763,14 @@ function russianHouseEmbed(game: RussianHouseGame, extra = "") {
     });
 }
 
-function russianHouseButtons(id: string, canCash: boolean, chamber = 0) {
+function russianHouseButtons(id: string, canCash: boolean, chamber = 0, disabled = false) {
   const nextChamber = chamber + 1;
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`cs:rrh:${id}:pull`)
       .setLabel(`🔫 Disparar (Cámara ${nextChamber}/6)`)
-      .setStyle(ButtonStyle.Danger),
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(disabled),
   );
   if (canCash) {
     const isProfit = chamber >= 3;
@@ -739,7 +782,8 @@ function russianHouseButtons(id: string, canCash: boolean, chamber = 0) {
       new ButtonBuilder()
         .setCustomId(`cs:rrh:${id}:cash`)
         .setLabel(label)
-        .setStyle(isProfit ? ButtonStyle.Success : ButtonStyle.Secondary),
+        .setStyle(isProfit ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setDisabled(disabled),
     );
   }
   return row;
@@ -802,15 +846,15 @@ function russianPlayerEmbed(game: RussianPlayerDuel, extra = "") {
     .setFooter({ text: "Ruleta rusa entre jugadores · Sin ventaja de la casa" });
 }
 
-function russianPlayerButtons(id: string, accepted: boolean) {
+function russianPlayerButtons(id: string, accepted: boolean, disabled = false) {
   if (!accepted) {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`cs:rrp:${id}:yes`).setLabel("Aceptar reto").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`cs:rrp:${id}:no`).setLabel("Rechazar").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`cs:rrp:${id}:yes`).setLabel("Aceptar reto").setStyle(ButtonStyle.Success).setDisabled(disabled),
+      new ButtonBuilder().setCustomId(`cs:rrp:${id}:no`).setLabel("Rechazar").setStyle(ButtonStyle.Danger).setDisabled(disabled),
     );
   }
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`cs:rrp:${id}:fire`).setLabel("Disparar").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`cs:rrp:${id}:fire`).setLabel("Disparar").setStyle(ButtonStyle.Danger).setDisabled(disabled),
   );
 }
 
@@ -901,18 +945,34 @@ export async function handleCasinoButton(interaction: ButtonInteraction): Promis
       return;
     }
     if (act === "pull") {
-      if (game.chamber === game.bulletAt) {
-        russianHouseGames.delete(id);
-        const chamberNum = game.chamber + 1;
-        await interaction.update({
+      await interaction
+        .update({
           embeds: [
             russianHouseEmbed(
               game,
-              `💥 **¡¡BANG!!** La bala estaba en la cámara **${chamberNum}/6**.\nHas muerto y has perdido tu apuesta de ${n(game.amount)}.`
-            ).setColor(COLORS.danger),
+              `🔫 *Apretando el gatillo con el corazón en un puño...*\n*El tambor gira hacia la cámara **${game.chamber + 1}/6**...*`
+            ),
           ],
-          components: [],
-        });
+          components: [russianHouseButtons(id, true, game.chamber, true)],
+        })
+        .catch(() => null);
+
+      await sleep(800);
+
+      if (game.chamber === game.bulletAt) {
+        russianHouseGames.delete(id);
+        const chamberNum = game.chamber + 1;
+        await interaction
+          .editReply({
+            embeds: [
+              russianHouseEmbed(
+                game,
+                `💥 **¡¡BANG!!** La bala estaba en la cámara **${chamberNum}/6**.\nHas muerto y has perdido tu apuesta de ${n(game.amount)}.`
+              ).setColor(COLORS.danger),
+            ],
+            components: [],
+          })
+          .catch(() => null);
         return;
       }
       game.chamber += 1;
@@ -924,18 +984,20 @@ export async function handleCasinoButton(interaction: ButtonInteraction): Promis
         const eco = getEco(game.guildId, game.userId);
         addWallet(eco, payout);
         saveEco(eco);
-        await interaction.update({
-          embeds: [
-            russianHouseEmbed(
-              game,
-              `🏆 **¡¡JACKPOT ABSOLUTO!!**\n` +
-              `¡Has sobrevivido a las **5 cámaras vacías**!\n` +
-              `La última cámara restante contenía la bala. Te retiras como leyenda con el multiplicador máximo de **${game.multiplier.toFixed(2)}x**.\n\n` +
-              `💰 **Premio cobrado:** ${n(payout)}`
-            ).setColor(COLORS.success),
-          ],
-          components: [],
-        });
+        await interaction
+          .editReply({
+            embeds: [
+              russianHouseEmbed(
+                game,
+                `🏆 **¡¡JACKPOT ABSOLUTO!!**\n` +
+                `¡Has sobrevivido a las **5 cámaras vacías**!\n` +
+                `La última cámara restante contenía la bala. Te retiras como leyenda con el multiplicador máximo de **${game.multiplier.toFixed(2)}x**.\n\n` +
+                `💰 **Premio cobrado:** ${n(payout)}`
+              ).setColor(COLORS.success),
+            ],
+            components: [],
+          })
+          .catch(() => null);
         return;
       }
 
@@ -945,17 +1007,19 @@ export async function handleCasinoButton(interaction: ButtonInteraction): Promis
         ? `⚠️ *Aún en zona de pérdidas.* Multiplicador: **${game.multiplier.toFixed(2)}x** (Recuperas: ${n(payout)}).`
         : `✅ *¡Zona de beneficios!* Multiplicador: **${game.multiplier.toFixed(2)}x** (Cobro asegurado: ${n(payout)}).`;
 
-      await interaction.update({
-        embeds: [
-          russianHouseEmbed(
-            game,
-            `*Click...* 🔄 **¡Cámara vacía!** Has sobrevivido a la cámara **${game.chamber}/6**.\n` +
-            `${statusText}\n` +
-            `➡️ Siguiente cámara: **${game.chamber + 1}/6** (Multiplicador siguiente: **${nextMultiplier.toFixed(2)}x**).`
-          ),
-        ],
-        components: [russianHouseButtons(id, true, game.chamber)],
-      });
+      await interaction
+        .editReply({
+          embeds: [
+            russianHouseEmbed(
+              game,
+              `*Click...* 🔄 **¡Cámara vacía!** Has sobrevivido a la cámara **${game.chamber}/6**.\n` +
+              `${statusText}\n` +
+              `➡️ Siguiente cámara: **${game.chamber + 1}/6** (Multiplicador siguiente: **${nextMultiplier.toFixed(2)}x**).`
+            ),
+          ],
+          components: [russianHouseButtons(id, true, game.chamber, false)],
+        })
+        .catch(() => null);
       return;
     }
   }
@@ -1005,6 +1069,21 @@ export async function handleCasinoButton(interaction: ButtonInteraction): Promis
         await interaction.reply(ephemeral([errorEmbed("No es tu turno")]));
         return;
       }
+      const shooterTag = isHostTurn ? game.hostTag : game.rivalTag;
+      await interaction
+        .update({
+          embeds: [
+            russianPlayerEmbed(
+              game,
+              `🔫 **${shooterTag}** *se coloca el cañón en la sien y aprieta el gatillo...*`
+            ),
+          ],
+          components: [russianPlayerButtons(id, true, true)],
+        })
+        .catch(() => null);
+
+      await sleep(800);
+
       if (game.chamber === game.bulletAt) {
         const winner = isHostTurn ? game.rivalId : game.hostId;
         const loser = interaction.user.id;
@@ -1012,21 +1091,32 @@ export async function handleCasinoButton(interaction: ButtonInteraction): Promis
         const eco = getEco(game.guildId, winner);
         addWallet(eco, game.amount * 2);
         saveEco(eco);
-        await interaction.update({
-          embeds: [
-            russianPlayerEmbed(game, "💥 ¡BANG! <@" + loser + "> encontró la bala.\n🏆 <@" + winner + "> gana el bote de " + n(game.amount * 2) + ".")
-              .setColor(COLORS.success),
-          ],
-          components: [],
-        });
+        await interaction
+          .editReply({
+            embeds: [
+              russianPlayerEmbed(
+                game,
+                `💥 **¡¡BANG!!** <@${loser}> encontró la bala en la cámara **${game.chamber + 1}/6**.\n🏆 <@${winner}> gana el bote de **${n(game.amount * 2)}**.`
+              ).setColor(COLORS.danger),
+            ],
+            components: [],
+          })
+          .catch(() => null);
         return;
       }
       game.chamber += 1;
       game.turn = isHostTurn ? "rival" : "host";
-      await interaction.update({
-        embeds: [russianPlayerEmbed(game, "🔄 Cámara vacía. Ahora dispara " + (game.turn === "host" ? game.hostTag : game.rivalTag) + ".")],
-        components: [russianPlayerButtons(id, true)],
-      });
+      await interaction
+        .editReply({
+          embeds: [
+            russianPlayerEmbed(
+              game,
+              `*Click...* 🔄 **¡Cámara vacía!** Ha sobrevivido.\nAhora dispara **${game.turn === "host" ? game.hostTag : game.rivalTag}** (Cámara ${game.chamber + 1}/6).`
+            ),
+          ],
+          components: [russianPlayerButtons(id, true, false)],
+        })
+        .catch(() => null);
       return;
     }
   }
@@ -1059,16 +1149,41 @@ export async function handleCasinoButton(interaction: ButtonInteraction): Promis
     const eco = getEco(d.guildId, winner);
     addWallet(eco, d.amount * 2);
     saveEco(eco);
-    await interaction.update({
-      embeds: [
-        casinoEmbed("Duelo")
-          .setColor(COLORS.success)
-          .setDescription(
-            `Ha salido **${hostWins ? "cara" : "cruz"}**.\n<@${winner}> gana ${n(d.amount * 2)}.\n<@${loser}> pierde ${n(d.amount)}.`,
-          ),
-      ],
-      components: [],
-    });
+
+    await interaction
+      .update({
+        embeds: [
+          casinoEmbed("Duelo de moneda · Lanzando")
+            .setColor(COLORS.casino)
+            .setDescription(
+              `🪙 *¡Duelo de cara o cruz aceptado!*\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `🌀 *Lanzando la moneda al aire entre <@${d.hostId}> y <@${d.rivalId}>...*\n` +
+              `🎲 *La moneda gira velozmente... ¿Cara o Cruz?*`
+            ),
+        ],
+        components: [],
+      })
+      .catch(() => null);
+
+    await sleep(1000);
+
+    const result = hostWins ? "cara" : "cruz";
+    const resultEmoji = hostWins ? "👑" : "⚔️";
+    await interaction
+      .editReply({
+        embeds: [
+          casinoEmbed("Duelo de moneda · Resultado")
+            .setColor(COLORS.success)
+            .setDescription(
+              `🪙 **DUELO DE MONEDA** 🪙\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `✨ *¡Clink! Ha salido:* **${result.toUpperCase()}** ${resultEmoji}\n\n` +
+              `🏆 <@${winner}> gana el bote de **+${n(d.amount * 2)}**!\n` +
+              `💀 <@${loser}> pierde **-${n(d.amount)}**.`
+            ),
+        ],
+        components: [],
+      })
+      .catch(() => null);
     return;
   }
 

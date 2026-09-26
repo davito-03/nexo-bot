@@ -12,6 +12,7 @@ import { handleDisboardMessage } from "../modules/bump/engine.js";
 import { handleBoostChannelMessage } from "../modules/boosts/tracker.js";
 import { handleChatbotMessage, isConfiguredChatbotChannel } from "../modules/ai/chatbot.js";
 import { handleCountingMessage } from "../modules/counting/engine.js";
+import { handleStoreOrderMessage } from "../modules/store/manager.js";
 
 const event: EventModule = {
   name: Events.MessageCreate,
@@ -75,6 +76,7 @@ const event: EventModule = {
     bumpMission(msg.guild.id, msg.author.id, "chat_3", day);
 
     await handleTicketMessage(msg);
+    await handleStoreOrderMessage(msg);
     await handleMessageXp(msg);
   },
 };

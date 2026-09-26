@@ -1,5 +1,6 @@
 import { getDb } from "../../database/index.js";
 import { getItemDef } from "./items.js";
+import { isUnsellableItem } from "./shop.js";
 import { addWallet, deductFunds, getEco, giveItem, n, saveEco, takeItem, totalFunds } from "./engine.js";
 import { formatDuration, timestamp } from "../../utils/time.js";
 import { logger } from "../../logger.js";
@@ -44,6 +45,10 @@ export function createAuction(opts: {
   durationHours: number;
   channelId?: string;
 }): { ok: boolean; error?: string; auction?: AuctionRow } {
+  if (isUnsellableItem(opts.guildId, opts.itemId)) {
+    return { ok: false, error: "Los roles exclusivos (como Millonario y Multimillonario) no se pueden subastar ni transferir." };
+  }
+
   const qty = Math.max(1, opts.quantity ?? 1);
   // Verificar que el usuario tiene el objeto
   const itemDef = getItemDef(opts.itemId);
@@ -55,11 +60,13 @@ export function createAuction(opts: {
   const now = Date.now();
 
   const tx = getDb().transaction(() => {
-    const eco = getEco(opts.guildId, opts.sellerId);
-    for (let i = 0; i < qty; i++) {
-      if (!takeItem(eco, opts.itemId)) return { error: `No tienes suficientes unidades de **${itemName}** en tu inventario.` } as const;
+    if (opts.sellerId !== "SYSTEM") {
+      const eco = getEco(opts.guildId, opts.sellerId);
+      for (let i = 0; i < qty; i++) {
+        if (!takeItem(eco, opts.itemId)) return { error: `No tienes suficientes unidades de **${itemName}** en tu inventario.` } as const;
+      }
+      saveEco(eco);
     }
-    saveEco(eco);
     const info = getDb().prepare(`INSERT INTO auctions (guild_id, seller_id, seller_tag, item_id, item_name, quantity, starting_bid, current_bid, channel_id, ends_at, closed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`).run(opts.guildId, opts.sellerId, opts.sellerTag, opts.itemId, itemName, qty, startBid, startBid, opts.channelId ?? null, endsAt, now);
     return { auction: getAuction(Number(info.lastInsertRowid)) } as const;
   });
@@ -196,11 +203,16 @@ export async function tickAuctions(client: NexoClient): Promise<void> {
           const winnerEco = getEco(current.guild_id, current.highest_bidder_id);
           giveItem(winnerEco, current.item_id, current.quantity);
           saveEco(winnerEco);
-          const fee = Math.floor(current.current_bid * 0.02);
-          const sellerEco = getEco(current.guild_id, current.seller_id);
-          addWallet(sellerEco, current.current_bid - fee);
-          saveEco(sellerEco);
-        } else {
+          if (current.seller_id === "SYSTEM") {
+            // FONDOS QUEMADOS DE LA ECONOMÍA (Money Sink Estatal)
+            logger.info(`[Subasta Estatal #${current.id}] ${current.current_bid} nexocoins quemadas definitivamente de la economía.`);
+          } else {
+            const fee = Math.floor(current.current_bid * 0.02);
+            const sellerEco = getEco(current.guild_id, current.seller_id);
+            addWallet(sellerEco, current.current_bid - fee);
+            saveEco(sellerEco);
+          }
+        } else if (current.seller_id !== "SYSTEM") {
           const sellerEco = getEco(current.guild_id, current.seller_id);
           giveItem(sellerEco, current.item_id, current.quantity);
           saveEco(sellerEco);

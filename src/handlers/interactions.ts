@@ -3,7 +3,7 @@ import type { NexoClient } from "../client.js";
 import { logger } from "../logger.js";
 import { errorEmbed } from "../utils/embeds.js";
 import { handleVoiceButton, handleVoiceModal, handleVoiceSelect, handleVoiceUserSelect } from "../modules/voicemaster/manager.js";
-import { handleTicketButton, openTicket } from "../modules/tickets/manager.js";
+import { handleTicketButton, handleTicketFeedbackButton, openTicket } from "../modules/tickets/manager.js";
 import { handleJoin } from "../modules/giveaways/manager.js";
 import { handleRpsButton } from "../commands/fun/rps.js";
 import { handleBlackjack } from "../commands/economy/casino.js";
@@ -25,6 +25,7 @@ import { handleMarriageButton } from "../modules/community/marriages.js";
 import { handleConecta4Button } from "../commands/fun/conecta4.js";
 import { handleCardTradeButton } from "../modules/economy/cards.js";
 import { handleSelfroleSelect } from "../modules/community/selfroles.js";
+import { handleStoreButton, handleStoreSelect } from "../modules/store/manager.js";
 
 function formatCommandOptions(options: readonly any[]): string {
   const parts: string[] = [];
@@ -68,7 +69,7 @@ export async function handleInteraction(interaction: Interaction, client: NexoCl
     }
     if (interaction.isAutocomplete()) {
       const cmd = client.commands.get(interaction.commandName);
-      await cmd?.autocomplete?.(interaction, client);
+      await cmd?.autocomplete?.(interaction, client).catch(() => {});
       return;
     }
     if (interaction.isButton()) {
@@ -90,6 +91,8 @@ export async function handleInteraction(interaction: Interaction, client: NexoCl
       if (id.startsWith("marry:")) return void (await handleMarriageButton(interaction, client));
       if (id.startsWith("c4:")) return void (await handleConecta4Button(interaction, client));
       if (id.startsWith("ctrade:")) return void (await handleCardTradeButton(interaction));
+      if (id.startsWith("order:")) return void (await handleStoreButton(interaction));
+      if (id.startsWith("ticket_feedback:")) return void (await handleTicketFeedbackButton(interaction));
       return;
     }
     if (interaction.isStringSelectMenu()) {
@@ -108,6 +111,9 @@ export async function handleInteraction(interaction: Interaction, client: NexoCl
       if (interaction.customId === "ticket:open") return void (await openTicket(interaction));
       if (interaction.customId.startsWith("vm:")) return void (await handleVoiceSelect(interaction));
       if (interaction.customId.startsWith("sr:panel:")) return void (await handleSelfroleSelect(interaction));
+      if (interaction.customId === "store:order_product" || interaction.customId.startsWith("order:plan:")) {
+        return void (await handleStoreSelect(interaction));
+      }
       return;
     }
     if (interaction.isUserSelectMenu()) {

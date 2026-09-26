@@ -6,6 +6,7 @@ import {
 import { onlyGuild, errorEmbed, ephemeral } from "../../utils/embeds.js";
 import { getEco, invOf } from "../../modules/economy/engine.js";
 import { getItemDef, getAllItems } from "../../modules/economy/items.js";
+import { isUnsellableItem } from "../../modules/economy/shop.js";
 import { createP2POffer } from "../../modules/economy/trade.js";
 import type { Command } from "../../types/index.js";
 
@@ -54,7 +55,7 @@ const command: Command = {
       const eco = getEco(interaction.guild.id, interaction.user.id);
       const inv = invOf(eco);
       const options = Object.entries(inv)
-        .filter(([, count]) => count > 0)
+        .filter(([id, count]) => count > 0 && !isUnsellableItem(interaction.guild.id, id))
         .map(([id, count]) => {
           const def = getItemDef(id);
           const name = def ? `${def.emoji} ${def.name}` : id;

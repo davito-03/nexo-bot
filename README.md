@@ -1,81 +1,70 @@
 # Nexo Bot
 
-Bot de Discord para **nexo | VC Activo · Español · Social · Gaming · Chill · Anime · Cats · Voice · Music · Chat · Emojis**.
+**Nexo Bot es el bot de Discord de la comunidad Nexo:** una mezcla de
+moderación, soporte, voz, juegos y herramientas sociales con una personalidad
+propia. Está escrito en TypeScript, usa `discord.js` y guarda sus datos en
+SQLite, por lo que puede funcionar en un único VPS sin depender de una
+infraestructura compleja.
 
-Stack: **TypeScript + discord.js v14 + SQLite**. Es el que mejor aguanta un bot de este tamaño (slash commands, botones, auditoría, voz, canvas y backups) sin montar una infra extra.
+## Lo que hace
 
-## Qué incluye
-
-| Módulo | Qué hace |
+| Área | Funcionalidades |
 | --- | --- |
-| Moderación | `/warn` `/kick` `/ban` `/timeout` `/mod` — warns, kicks, bans, tempbans, timeouts, softban, historial y casos. Escalado automático de warns. |
-| Logs | `/logs` asigna canales. Deletes/edits, voz, audit log, tickets, sanciones, joins y boosts. |
-| Miembros | Registro persistente de altas/bajas, `/miembros`. |
-| Niveles | XP por chat (cooldown) y por **minutos en VC**. Tarjetas, `/nivel rank` `/nivel top`, roles por nivel. |
-| VoiceMaster | Canal **➕ Crear sala**, panel con lock/hide/rename/límite/claim/transfer/kick. |
-| Tickets | Panel por categorías, claim/cierre, transcripciones HTML, añadir/quitar usuarios. |
-| IA de soporte | **Neko** responde tickets con un pool (Groq → Gemini → OpenRouter → Cohere → Cloudflare → OpenAI mini) y memoria por ticket. El prompt de normas se carga con `/ticket ia prompt:`. |
-| Economía | nexocoin: trabajo, crimen, tienda, P2P, bolsa, minería, propiedades. Ledger de movimientos. |
-| Asaltos | `/asalto` cooperativo: 7 roles, objetivos (banco, casino, mansión…), QTE, HUD Canvas, mercado negro y reputación. |
-| Giveaways | `/sorteo` con requisitos de rol, nivel o booster. |
-| Backup | ZIP con roles, canales, emojis, miembros, bans, sanciones, niveles, tickets, config y mensajes recientes. Restauración y backups automáticos. |
-| Entretenimiento | `/fun` (8ball, gato, neko, ship, trivia, wyr…) y `/rps`. Mascotas y RPG. |
-| Bienvenida / boost | Tarjetas con la estética gatitos anime. |
+| Moderación | Warns, kick, ban, tempban, timeout, softban, casos e historial. |
+| Logs | Mensajes editados o borrados, voz, auditoría, tickets, sanciones, altas y boosts. |
+| Miembros y niveles | Registro de entradas y salidas, XP por chat y voz, rankings, tarjetas y roles. |
+| VoiceMaster | Salas temporales con bloqueo, ocultación, nombre, límite, claim, transferencia y expulsión. |
+| Tickets | Panel por categorías, claim, cierre, transcripts HTML y gestión de usuarios. |
+| IA de soporte | Neko responde en tickets con varios proveedores y memoria por conversación. |
+| Economía | Trabajo, crimen, tienda, P2P, bolsa, minería, propiedades y ledger. |
+| Juegos | Asaltos cooperativos, casino, trivia, mascotas, RPG y `/fun`. |
+| Comunidad | Giveaways, bienvenida, boosts, automod y backups restaurables. |
 
-## CI
+## Inicio rápido
 
-`.github/workflows/ci.yml`: `npm ci`, `npm run typecheck`, `npm run smoke`.
+### 1. Crear el bot
 
-## Arranque rápido
+1. Crea una aplicación en el [Discord Developer Portal](https://discord.com/developers/applications).
+2. En **Bot**, genera un token y activa `Server Members` y `Message Content`.
+3. En **OAuth2**, usa los scopes `bot` y `applications.commands`.
+4. Invita el bot al servidor con los permisos que necesite. `Administrator`
+   funciona para una instalación rápida, pero es preferible conceder permisos
+   concretos en producción.
 
-1. Crea una aplicación en [Discord Developer Portal](https://discord.com/developers/applications).
-2. Bot → Reset Token. Activa **Privileged Gateway Intents**: Server Members, Message Content (Presence no hace falta).
-3. OAuth2 → URL Generator: scopes `bot` + `applications.commands`. Permisos: Administrator (o Manage Guild/Roles/Channels/Messages, Ban, Kick, Moderate Members, View Audit Log).
-4. Invita el bot al servidor.
+### 2. Configurar y arrancar
 
 ```bash
 cp .env.example .env
-# edita .env: DISCORD_TOKEN, CLIENT_ID, GUILD_ID (el de Nexo)
+# Edita .env: DISCORD_TOKEN, CLIENT_ID y GUILD_ID.
+
 npm install
-npm run start:prod    # compila TypeScript y arranca con node
-# desarrollo: npm run dev
+npm run dev              # Desarrollo con recarga
+npm run start:prod       # Producción
 ```
 
-`GUILD_ID` registra los slash al instante en ese servidor y vacía los globales (evita duplicados). Al entrar a un guild nuevo también se despliegan ahí.
+También existe un despliegue preparado para Docker:
 
-El bot está restringido al servidor oficial de Nexo (`1394312233810395146`) y abandona cualquier otro servidor.
-
-Intents en el portal: **Server Members** y **Message Content**.
-
-Cuando pases de pruebas a Nexo, cambia `GUILD_ID` al ID del servidor real y reinicia.
-
-### IA de tickets (pool barato, sin xAI)
-
-Neko usa las mismas claves que dabot, en cascada:
-
-`Groq → Gemini (3 keys) → OpenRouter → Cohere → Cloudflare → OpenAI gpt-4o-mini`
-
-Cada ticket guarda un **resumen + hechos** en SQLite. Si un proveedor se cae o se acaba el cupo, el siguiente recibe esa memoria y la conversación reciente, así no pierde el hilo.
-
-Cuando tengas el prompt de normas: `/ticket ia prompt:<texto>`
-
-### Chatbots de personajes
-
-Un administrador puede preparar un canal con `/config chatbot canal:#canal personaje:"Nombre" prompt:"Personalidad..."`.
-Los mensajes se procesan en cola por canal y la respuesta se publica mediante un webhook con el nombre del personaje. El bot no crea canales automáticamente ni afirma que el personaje sea una persona real.
-
-Para usar una IA local compatible con la API de OpenAI, configura `LOCAL_AI_URL` y `LOCAL_AI_MODEL`. Por ejemplo, con Ollama en el mismo VPS:
-
-```env
-LOCAL_AI_URL=http://127.0.0.1:11434/v1
-LOCAL_AI_MODEL=llama3.2:3b
+```bash
+docker compose up -d --build
+docker compose logs -f
 ```
 
-La IA local se prueba primero y los proveedores remotos quedan como fallback.
+El proyecto requiere **Node.js 20 o superior**. Para validar cambios:
 
-### Primer setup en Discord
-
+```bash
+npm run typecheck
+npm run smoke
 ```
+
+`GUILD_ID` permite registrar los comandos slash al instante en un servidor de
+pruebas y evita esperar al registro global. El bot está configurado para
+trabajar con el servidor oficial de Nexo y abandona otros servidores.
+
+## Primer setup en Discord
+
+Después de invitarlo, una configuración habitual puede empezar así:
+
+```text
 /config bienvenida canal:#bienvenidas activa:true imagen:true
 /config boost canal:#boosts activa:true
 /config niveles canal:#niveles activos:true
@@ -87,46 +76,87 @@ La IA local se prueba primero y los proveedores remotos quedan como fallback.
 /automod toggle filtro:maestro valor:true
 ```
 
-## Imágenes
+## IA de tickets y personajes
 
-Fondos de las tarjetas (PNG oficiales):
+Neko intenta usar los proveedores configurados en cascada para mantener el
+servicio disponible. La conversación conserva un resumen y hechos relevantes en
+SQLite, de modo que un cambio de proveedor no rompe el contexto del ticket.
 
-- `assets/images/welcome.png`
-- `assets/images/levelup.png`
-- `assets/images/boosts.png`
+El prompt de normas se configura con:
 
-## Estructura
-
-```
-src/
-  commands/     slash commands por área
-  events/       ready, mensajes, miembros, voz
-  modules/      lógica (mod, logs, levels, voicemaster, tickets, ai, giveaways, backup, automod, welcome)
-  database/     SQLite
-  handlers/     carga de comandos / interacciones
+```text
+/ticket ia prompt:<texto>
 ```
 
-Datos: `data/nexo.db`. Backups: `backups/`. Transcripciones: `data/transcripts/`.
+También se pueden crear personajes para canales concretos:
 
-## Producción (Docker)
-
-Un solo contenedor. SQLite y backups viven en el host (`./data`, `./backups`).
-
-```bash
-docker compose up -d --build
-docker compose logs -f
+```text
+/config chatbot canal:#canal personaje:"Nombre" prompt:"Personalidad..."
 ```
 
-Comandos útiles:
+Si quieres probar una IA local compatible con OpenAI, configura:
+
+```env
+LOCAL_AI_URL=http://127.0.0.1:11434/v1
+LOCAL_AI_MODEL=llama3.2:3b
+```
+
+La IA local se prueba primero y los proveedores remotos quedan como respaldo.
+
+## Datos y copias de seguridad
+
+```text
+src/                 Código fuente
+src/commands/        Comandos slash
+src/events/          Eventos de Discord
+src/modules/         Moderación, tickets, IA, niveles, voz y juegos
+src/database/        SQLite y esquema
+src/handlers/        Carga de comandos e interacciones
+data/nexo.db         Base de datos local
+data/transcripts/    Transcripciones de tickets
+backups/             Copias ZIP
+```
+
+El contenedor guarda `data/` y `backups/` en el host para que los datos
+sobrevivan a las actualizaciones:
 
 ```bash
 docker compose ps
 docker compose logs -f --tail=100
 docker compose restart
-docker compose down          # para el bot; no borra data/
-docker compose up -d --build # tras cambiar código
+docker compose down          # Detiene el bot, no borra data/
+docker compose up -d --build
 ```
 
-`restart: unless-stopped` lo levanta solo si se cae o reinicia la máquina. `stop_grace_period: 25s` deja devolver apuestas de mesas de casino al apagar.
+El `stop_grace_period` deja tiempo para cerrar correctamente las operaciones
+activas antes de apagar el proceso.
 
-Sin Docker: `./start.sh` o `npm run start:prod`. Node 20+.
+## Imágenes
+
+Las tarjetas usan estos fondos:
+
+- `assets/images/welcome.png`
+- `assets/images/levelup.png`
+- `assets/images/boosts.png`
+
+## Seguridad
+
+No incluyas tokens, claves de proveedores ni credenciales en Git. Usa `.env`
+solo en el servidor y rota inmediatamente cualquier secreto que haya podido
+quedar expuesto en una copia, log o captura.
+
+## CI
+
+El workflow de CI ejecuta:
+
+```text
+npm ci
+npm run typecheck
+npm run smoke
+```
+
+## Licencia y estado
+
+Este repositorio contiene el bot operativo de la comunidad Nexo. La
+configuración del servidor, las credenciales y los datos de usuarios pertenecen
+al entorno de despliegue y no forman parte del código público.

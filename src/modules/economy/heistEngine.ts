@@ -103,6 +103,17 @@ export function xpForNextRoleLevel(level: number): number {
   return level * 150;
 }
 
+/**
+ * Retorna la probabilidad máxima de éxito permitida para un nivel de seguridad dado de forma independiente.
+ * - En ningún nivel puede tener el 100% de éxito (Tope de Nivel 1: 82%).
+ * - En el Nivel 10 el máximo porcentaje de éxito es 55% (rebalanceado para mayor accesibilidad de las bandas).
+ * - Progresión lineal natural de 3% por nivel de seguridad: 82 - (nivel - 1) * 3.
+ */
+export function getMaxWinRateForSecurity(securityLevel: number): number {
+  const level = Math.max(1, Math.min(10, Math.round(securityLevel)));
+  return 82 - (level - 1) * 3;
+}
+
 // ── Objetivos de Asalto & Niveles de Seguridad ──
 export const DAVITO_ROLE_ID = "1551207417973440542";
 export const DAVITO_REWARD_COINS = 100_000_000;
@@ -354,6 +365,8 @@ export interface BankSecurityInfo {
   targetName: string;
   targetEmoji: string;
   securityLevel: number;
+  maxLevelReached: number;
+  level10Reached: boolean;
   consecutiveWins: number;
   lastHeistAt: number;
   tier: BankSecurityTier;
@@ -361,18 +374,19 @@ export interface BankSecurityInfo {
 
 /**
  * Comprueba si la Fortaleza de Davito ha sido desbloqueada.
- * Se desbloquea únicamente cuando todos los objetivos estándar están a Nivel 10.
+ * Se desbloquea cuando todos los 8 objetivos estándar han alcanzado el Nivel 10 al menos una vez (hitos registrados).
  */
 export function isDavitoUnlocked(guildId: string): boolean {
   for (const tid of STANDARD_TARGET_IDS) {
     const sec = getTargetSecurity(guildId, tid);
-    if (sec.securityLevel < 10) return false;
+    if (!sec.level10Reached && sec.securityLevel < 10) return false;
   }
   return true;
 }
 
 /**
- * Devuelve el progreso hacia el desbloqueo secreto de Davito (sin spoilers).
+ * Devuelve el progreso hacia el desbloqueo secreto de Davito (sin spoilers),
+ * basado en los hitos permanentes de Nivel 10 registrados para cada asalto.
  */
 export function getDavitoUnlockProgress(guildId: string): {
   maxedCount: number;
@@ -382,7 +396,7 @@ export function getDavitoUnlockProgress(guildId: string): {
   let maxedCount = 0;
   for (const tid of STANDARD_TARGET_IDS) {
     const sec = getTargetSecurity(guildId, tid);
-    if (sec.securityLevel >= 10) maxedCount += 1;
+    if (sec.level10Reached || sec.securityLevel >= 10) maxedCount += 1;
   }
   return {
     maxedCount,
@@ -431,9 +445,12 @@ export function getTargetSecurity(guildId: string, targetId = "banco"): BankSecu
       initLevel = 10;
     }
 
+    const initMaxLevel = initLevel >= 10 ? 10 : initLevel;
+    const initLevel10 = initLevel >= 10 ? 1 : 0;
+
     db.prepare(
-      "INSERT INTO heist_target_security (guild_id, target_id, security_level, consecutive_wins, last_heist_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(guildId, targetDef.id, initLevel, initWins, initLast, now);
+      "INSERT INTO heist_target_security (guild_id, target_id, security_level, consecutive_wins, last_heist_at, max_level_reached, level_10_reached, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(guildId, targetDef.id, initLevel, initWins, initLast, initMaxLevel, initLevel10, now);
 
     row = {
       guild_id: guildId,
@@ -441,25 +458,14 @@ export function getTargetSecurity(guildId: string, targetId = "banco"): BankSecu
       security_level: initLevel,
       consecutive_wins: initWins,
       last_heist_at: initLast,
+      max_level_reached: initMaxLevel,
+      level_10_reached: initLevel10,
     };
-  } else {
-    // Si han pasado más de 24 horas sin asaltos, la seguridad se relaja gradualmente (-1 nivel cada 12h de inactividad)
-    if (row.last_heist_at > 0 && row.security_level > 1 && !targetDef.isSecret) {
-      const hoursInactive = (now - row.last_heist_at) / 3600_000;
-      if (hoursInactive >= 24) {
-        const decayLevels = Math.floor((hoursInactive - 12) / 12);
-        const newLevel = Math.max(1, row.security_level - decayLevels);
-        if (newLevel !== row.security_level) {
-          db.prepare(
-            "UPDATE heist_target_security SET security_level = ?, updated_at = ? WHERE guild_id = ? AND target_id = ?",
-          ).run(newLevel, now, guildId, targetDef.id);
-          row.security_level = newLevel;
-        }
-      }
-    }
   }
 
   const level = Math.max(1, Math.min(10, row.security_level || 1));
+  const maxLevel = Math.max(level, row.max_level_reached ?? level);
+  const level10 = Boolean(row.level_10_reached || maxLevel >= 10 || level >= 10);
   const tier = targetDef.tiers[level] || targetDef.tiers[10] || targetDef.tiers[1] || BANK_SECURITY_TIERS[1];
 
   return {
@@ -468,6 +474,8 @@ export function getTargetSecurity(guildId: string, targetId = "banco"): BankSecu
     targetName: targetDef.name,
     targetEmoji: targetDef.emoji,
     securityLevel: level,
+    maxLevelReached: maxLevel,
+    level10Reached: level10,
     consecutiveWins: row.consecutive_wins || 0,
     lastHeistAt: row.last_heist_at || 0,
     tier,
@@ -479,13 +487,14 @@ export function recordTargetHeistResult(
   targetId: string,
   success: boolean,
   totalLoot: number,
-): { security: BankSecurityInfo; justUnlockedDavito: boolean } {
+): { security: BankSecurityInfo; justUnlockedDavito: boolean; justReachedLevel10: boolean } {
   const db = getDb();
   const current = getTargetSecurity(guildId, targetId);
   const now = Date.now();
   const targetDef = HEIST_TARGETS[targetId] || HEIST_TARGETS.banco;
 
   const wasUnlocked = isDavitoUnlocked(guildId);
+  const hadLevel10 = current.level10Reached;
 
   let newLevel = current.securityLevel;
   let newConsecutive = current.consecutiveWins;
@@ -502,9 +511,13 @@ export function recordTargetHeistResult(
     if (success) newConsecutive += 1;
   }
 
+  const reached10Now = hadLevel10 || newLevel >= 10;
+  const newMaxLevel = Math.max(current.maxLevelReached, newLevel);
+  const justReachedLevel10 = !hadLevel10 && reached10Now;
+
   db.prepare(
-    "UPDATE heist_target_security SET security_level = ?, consecutive_wins = ?, last_heist_at = ?, updated_at = ? WHERE guild_id = ? AND target_id = ?",
-  ).run(newLevel, newConsecutive, now, now, guildId, targetDef.id);
+    "UPDATE heist_target_security SET security_level = ?, consecutive_wins = ?, last_heist_at = ?, max_level_reached = ?, level_10_reached = ?, updated_at = ? WHERE guild_id = ? AND target_id = ?",
+  ).run(newLevel, newConsecutive, now, newMaxLevel, reached10Now ? 1 : 0, now, guildId, targetDef.id);
 
   if (targetDef.id === "banco") {
     try {
@@ -522,6 +535,7 @@ export function recordTargetHeistResult(
   return {
     security: getTargetSecurity(guildId, targetDef.id),
     justUnlockedDavito,
+    justReachedLevel10,
   };
 }
 
@@ -541,19 +555,22 @@ export function setTargetSecurityLevel(
   guildId: string,
   targetId: string,
   level: number,
-): { security: BankSecurityInfo; justUnlockedDavito: boolean } {
+): { security: BankSecurityInfo; justUnlockedDavito: boolean; justReachedLevel10: boolean } {
   const db = getDb();
   const targetDef = HEIST_TARGETS[targetId] || HEIST_TARGETS.banco;
   const clampedLevel = Math.max(1, Math.min(10, Math.floor(level)));
   const now = Date.now();
   const wasUnlocked = isDavitoUnlocked(guildId);
+  const current = getTargetSecurity(guildId, targetDef.id);
+  const hadLevel10 = current.level10Reached;
 
-  // Asegurar que exista la fila
-  getTargetSecurity(guildId, targetDef.id);
+  const reached10Now = hadLevel10 || clampedLevel >= 10;
+  const newMaxLevel = Math.max(current.maxLevelReached, clampedLevel);
+  const justReachedLevel10 = !hadLevel10 && reached10Now;
 
   db.prepare(
-    "UPDATE heist_target_security SET security_level = ?, updated_at = ? WHERE guild_id = ? AND target_id = ?",
-  ).run(clampedLevel, now, guildId, targetDef.id);
+    "UPDATE heist_target_security SET security_level = ?, max_level_reached = ?, level_10_reached = ?, updated_at = ? WHERE guild_id = ? AND target_id = ?",
+  ).run(clampedLevel, newMaxLevel, reached10Now ? 1 : 0, now, guildId, targetDef.id);
 
   if (targetDef.id === "banco") {
     try {
@@ -571,6 +588,7 @@ export function setTargetSecurityLevel(
   return {
     security: getTargetSecurity(guildId, targetDef.id),
     justUnlockedDavito,
+    justReachedLevel10,
   };
 }
 

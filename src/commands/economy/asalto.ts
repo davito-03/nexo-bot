@@ -26,7 +26,12 @@ import {
   buyBlackMarketItem,
   setTargetSecurityLevel,
   resetTargetCooldown,
+  getMaxWinRateForSecurity,
 } from "../../modules/economy/heistEngine.js";
+import { getDailyHeistEvents, getActiveEventsForTarget } from "../../modules/economy/heistEvents.js";
+import { getUserRelics, pawnRelic } from "../../modules/economy/heistRelics.js";
+import { isUserPolice } from "../../modules/economy/police.js";
+import { syncHeistPinnedGuide } from "../../modules/economy/heistGuideEmbed.js";
 
 const command: Command = {
   data: new SlashCommandBuilder()
@@ -70,6 +75,20 @@ const command: Command = {
         .setName("perfil")
         .setDescription("Consulta tu historial criminal, reputación y nivel en cada rol táctico")
         .addUserOption((o) => o.setName("usuario").setDescription("Usuario a consultar (por defecto tú)")),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("vitrina")
+        .setDescription("Consulta la vitrina de reliquias y tesoros históricos únicos saqueados")
+        .addUserOption((o) => o.setName("usuario").setDescription("Usuario a consultar (por defecto tú)")),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("empeñar")
+        .setDescription("Vende o empeña una reliquia de tu vitrina para obtener nexocoins en efectivo")
+        .addStringOption((o) =>
+          o.setName("reliquia").setDescription("Nombre o identificador de la reliquia a empeñar").setRequired(true).setAutocomplete(true),
+        ),
     )
     .addSubcommand((s) =>
       s.setName("roles").setDescription("Consulta la guía y habilidades de los 7 roles tácticos de asalto"),
@@ -167,22 +186,37 @@ const command: Command = {
 
         const isDavito = targetDef.id === "davito";
         const embedColor = isDavito ? 0x990000 : COLORS.warn;
+        const activeEv = getActiveEventsForTarget(targetDef.id, gid);
+        const eventText =
+          `🌍 **Eventos & Mutadores Activos Hoy:**\n` +
+          `▸ ${activeEv.globalEvent.emoji} **${activeEv.globalEvent.name}** *(Global)*: ${activeEv.globalEvent.description}\n` +
+          (activeEv.targetEvent
+            ? `▸ ${activeEv.targetEvent.emoji} **${activeEv.targetEvent.name}** *(Objetivo)*: ${activeEv.targetEvent.description}\n`
+            : "") +
+          `\n`;
 
         const embed = baseEmbed(embedColor)
           .setTitle(`${targetDef.emoji} Estado Táctico: ${targetDef.name}`)
           .setDescription(
             `*${targetDef.description}*\n\n` +
+              eventText +
               `🔒 **Nivel de Blindaje Actual:** ${sec.tier.emoji} **Nivel ${sec.securityLevel}: ${sec.tier.name}**\n` +
+              (!isDavito && (sec.level10Reached || sec.securityLevel >= 10)
+                ? `⭐ **Hito de Nivel 10:** ✅ *Registrado permanentemente en el sistema de descifrado*\n`
+                : "") +
               `📜 **Defensas:** *${sec.tier.description}*\n\n` +
               (!isDavito
                 ? `▸ **Dificultad de infiltración:** \`${sec.tier.difficultyMod}%\` de penalización\n` +
+                  `▸ **Probabilidad máxima de éxito:** **${getMaxWinRateForSecurity(sec.securityLevel)}%** *(Tope de Nv. ${sec.securityLevel}, independiente de equipamiento o banda)*\n` +
+                  `▸ **Capacidad de la banda:** Hasta **12 asaltantes**\n` +
                   `▸ **Multiplicador de botín:** **×${sec.tier.lootMultiplier}** sobre botín base (${n(targetDef.baseLootMin)} - ${n(targetDef.baseLootMax)})\n` +
                   `▸ **Racha de asaltos exitosos:** **${sec.consecutiveWins}** victorias consecutivas\n`
-                : `▸ **Dificultad de infiltración:** ☠️ **Casi imposible (Éxito estrictamente < 1%)**\n` +
+                : `▸ **Dificultad de infiltración:** ☠️ **Casi imposible (Éxito estrictamente ≤ 0.77%)**\n` +
+                  `▸ **Capacidad de banda colosal:** Hasta **24 asaltantes** simultáneos\n` +
                   `▸ **Recompensa Legendaria:** **🪙 100.000.000 nexocoins** para cada miembro + Rol <@&1551207417973440542>\n`) +
               `▸ **Estado de alerta:** ${alertStatus}\n\n` +
               (!isDavito
-                ? `💡 *Nota: Cada asalto exitoso sube +1 nivel de seguridad (hasta Nv. 10). Si fracasa, baja -1 nivel y se aplican multas de hasta 50.000 🪙.*`
+                ? `💡 *Nota: Cada asalto exitoso sube +1 nivel de seguridad (hasta Nv. 10 con un 55% de éxito máx). Si fracasa, baja -1 nivel y se aplican multas judiciales de hasta 500.000 🪙.*`
                 : `👑 *¡Has alcanzado el mayor desafío del servidor! Planifica tu golpe con \`/asalto iniciar objetivo:davito\`.*`),
           );
 
@@ -199,7 +233,10 @@ const command: Command = {
       const targetLines = STANDARD_TARGET_IDS.map((tid) => {
         const tDef = HEIST_TARGETS[tid]!;
         const sec = getTargetSecurity(gid, tid);
-        const maxBadge = sec.securityLevel >= 10 ? "⭐ **[NIVEL MÁXIMO]**" : `(Nv. ${sec.securityLevel}/10)`;
+        const hasMaxed = sec.level10Reached || sec.securityLevel >= 10;
+        const maxBadge = hasMaxed
+          ? (sec.securityLevel >= 10 ? "⭐ **[NIVEL MÁXIMO]**" : "⭐ *(Hito Nv. 10 Registrado)*")
+          : `(Nv. ${sec.securityLevel}/10)`;
         const isOnCooldown = sec.lastHeistAt > 0 && Date.now() - sec.lastHeistAt < HEIST_COOLDOWN_MS;
         const readyTimestamp = Math.floor((sec.lastHeistAt + HEIST_COOLDOWN_MS) / 1000);
         const timerText = isOnCooldown
@@ -221,21 +258,31 @@ const command: Command = {
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
           `👑 **¡¡¡CÓDIGO OMEGA: FORTALEZA DE DAVITO DESBLOQUEADA!!!** 👑\n` +
           `¡Todos los objetivos de asalto del servidor han alcanzado el Nivel Máximo 10!\n` +
-          `▸ **Dificultad:** ☠️ Casi imposible (**menor al 1% de éxito** incluso con el mejor equipamiento).\n` +
+          `▸ **Dificultad:** ☠️ Casi imposible (**estrictamente menor al 0.77% de éxito** incluso con 24 miembros y mejor equipamiento).\n` +
           `▸ **Recompensa:** Rol honorífico <@&1551207417973440542> y **🪙 100.000.000 nexocoins** por asaltante.\n` +
           `▸ **Temporizador:** ${davitoTimer}\n` +
           `▸ Inicia este golpe legendario con: \`/asalto iniciar objetivo:davito\``;
       } else {
         classifiedSection =
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-          `🔒 **Proyecto de Asalto Clasificado:** \`[${bar}]\` **${unlockProg.maxedCount}/${unlockProg.totalStandard} Máximos (${percent}%)**\n` +
-          `*Alcanza el Nivel 10 de seguridad en todos los objetivos para desclasificar el asalto legendario definitivo.*`;
+          `🔒 **Proyecto de Asalto Clasificado:** \`[${bar}]\` **${unlockProg.maxedCount}/${unlockProg.totalStandard} Hitos Registrados (${percent}%)**\n` +
+          `*Alcanza el Nivel 10 de seguridad en cada objetivo para registrar su hito y desclasificar el asalto legendario definitivo.*`;
       }
+
+      const { globalEvent, targetEvents } = getDailyHeistEvents(gid);
+      const eventsSummary =
+        `🌍 **MUTADORES & EVENTOS DEL DÍA EN EL INFRAMUNDO:**\n` +
+        `▸ ${globalEvent.emoji} **${globalEvent.name}** *(Global)*: *${globalEvent.description}*\n` +
+        targetEvents
+          .map((te) => `▸ ${te.emoji} **${te.name}** *(Objetivo: ${HEIST_TARGETS[te.targetId]?.shortName ?? te.targetId})*: *${te.description}*`)
+          .join("\n") +
+        `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
       const embed = baseEmbed(COLORS.crime)
         .setTitle("🗺️ Panel de Operaciones & Asaltos de Nexo")
         .setDescription(
-          `Información táctica de todos los objetivos, niveles de blindaje y temporizadores en tiempo real.\n` +
+          eventsSummary +
+            `Información táctica de todos los objetivos, niveles de blindaje y temporizadores en tiempo real.\n` +
             `Para organizar un golpe usa \`/asalto iniciar [objetivo]\` o inspecciona uno con \`/asalto info objetivo:<nombre>\`.\n\n` +
             targetLines.join("\n\n") +
             "\n\n" +
@@ -251,10 +298,7 @@ const command: Command = {
       const embed = baseEmbed(COLORS.crime)
         .setTitle("🎭 Roles Tácticos de Asalto & Especializaciones")
         .setDescription(
-          `Cada miembro de la banda aporta habilidades únicas al golpe. Una banda diversa desbloquea potentes sinergias:\n\n` +
-            `• **Sinergia Táctica (3+ roles distintos):** +5% de probabilidad de éxito y +10% de botín.\n` +
-            `• **Sinergia Perfecta (5+ roles distintos):** +10% de probabilidad de éxito y +20% de botín.\n` +
-            `• **Sindicato Total (los 7 roles presentes):** +14% de éxito supremo y +30% de botín colosal.\n` +
+          `Cada miembro de la banda aporta habilidades únicas al golpe. Coordinar combinaciones temáticas entre roles activa bonificaciones de éxito y botín acumulables (hasta un máximo táctico de **+9% de éxito** y **+35% de botín**).\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
         );
 
@@ -265,6 +309,31 @@ const command: Command = {
           inline: false,
         });
       }
+
+      embed.addFields(
+        {
+          name: "🤝  Sinergias Temáticas (Dúos Tácticos)",
+          value:
+            `▸ 🥷💻 **Infiltración Cibernética** *(Hacker + Infiltrador)*: +2.5% éxito, +8% botín.\n` +
+            `▸ 💥🎯 **Fuerza de Choque Pesada** *(Demoliciones + Tirador)*: +2.5% éxito, +10% botín.\n` +
+            `▸ 🚑🏎️ **Evacuación & Soporte Vital** *(Piloto + Médico)*: +2% éxito, -25% calabozo.\n` +
+            `▸ 🧠🎭 **Guerra Psicológica & Falsificación** *(Negociador + Hacker)*: +2.5% éxito, -15% multas.\n` +
+            `▸ 💨🏎️ **Extracción Fantasma** *(Piloto + Infiltrador)*: +2% éxito, +5% huida.\n` +
+            `▸ ⚖️🎯 **Intimidación Táctica** *(Negociador + Tirador)*: +2.5% éxito.\n` +
+            `▸ 💣🏎️ **Golpe y Fuga Relámpago** *(Demoliciones + Piloto)*: +1.5% éxito, +12% botín.`,
+          inline: false,
+        },
+        {
+          name: "🔥  Tríos Tácticos & Sindicatos",
+          value:
+            `▸ ⚡🏦 **Tríada Clásica de Bóveda** *(Hacker + Demoliciones + Piloto)*: +3.5% éxito, +15% botín.\n` +
+            `▸ 🎖️🛡️ **Escuadrón Táctico Operativo** *(Tirador + Infiltrador + Médico)*: +3.5% éxito, -20% calabozo.\n` +
+            `▸ 🕵️🌐 **Mente Maestra & Sombras** *(Negociador + Hacker + Infiltrador)*: +3.5% éxito, -20% multas.\n` +
+            `▸ 🌟 **Sindicato Mayor** *(5+ roles distintos)*: +3.5% éxito, +12% botín.\n` +
+            `▸ 👑 **Sindicato Absoluto** *(Los 7 roles presentes)*: +6.0% éxito supremo, +20% botín.`,
+          inline: false,
+        },
+      );
 
       embed.setFooter({ text: "Gana XP en cada rol participando en asaltos para subir de nivel y potenciar tus bonus." });
       await interaction.reply({ embeds: [embed] });
@@ -315,6 +384,92 @@ const command: Command = {
         .setFooter({ text: "Sube de nivel tus roles participando en asaltos para aumentar la tasa de éxito de tu banda." });
 
       await interaction.reply({ embeds: [embed] });
+      return;
+    }
+
+    if (sub === "vitrina") {
+      const targetUser = interaction.options.getUser("usuario") ?? interaction.user;
+      const relics = getUserRelics(gid, targetUser.id);
+
+      if (relics.length === 0) {
+        await interaction.reply({
+          embeds: [
+            infoEmbed(
+              "Vitrina de Reliquias Vacía",
+              targetUser.id === interaction.user.id
+                ? "Aún no has saqueado ninguna reliquia única de los asaltos.\nParticipa en asaltos tácticos para obtener piezas de coleccionista históricas (con un 100% garantizado al derrotar la Fortaleza de Davito)."
+                : `<@${targetUser.id}> aún no posee ninguna reliquia en su vitrina personal.`,
+            ),
+          ],
+        });
+        return;
+      }
+
+      const totalPawnValue = relics.reduce((sum, r) => sum + (r.def?.pawnValue ?? 0), 0);
+
+      // Agrupar por rareza
+      const rarityGroups: Record<string, typeof relics> = {};
+      for (const r of relics) {
+        const rar = r.def?.rarity ?? "Rara";
+        if (!rarityGroups[rar]) rarityGroups[rar] = [];
+        rarityGroups[rar].push(r);
+      }
+
+      const rarityOrder = ["Trascendente", "Legendaria", "Mítica", "Épica", "Rara"];
+      const fields = [];
+
+      for (const rar of rarityOrder) {
+        const list = rarityGroups[rar];
+        if (!list || list.length === 0) continue;
+
+        const lines = list.map((r) => {
+          const tDef = HEIST_TARGETS[r.targetId];
+          return `▸ ${r.def?.emoji ?? "💎"} **${r.def?.name ?? r.relicId}**\n` +
+            `   └ *${r.def?.description ?? "Artefacto único"}* · 💰 Empeño: \`${n(r.def?.pawnValue ?? 0)} 🪙\` · Procedencia: **${tDef?.shortName ?? r.targetId}**`;
+        });
+
+        fields.push({
+          name: `✨ Rareza: ${rar.toUpperCase()} (${list.length})`,
+          value: lines.join("\n"),
+          inline: false,
+        });
+      }
+
+      const embed = baseEmbed(COLORS.gold)
+        .setTitle(`💎 Vitrina de Reliquias & Coleccionables: ${targetUser.username}`)
+        .setDescription(
+          `Colección de artefactos únicos de alto valor histórico saqueados en golpes exitosos.\n\n` +
+            `🏆 **Total de Reliquias Poseídas:** \`${relics.length} piezas\`\n` +
+            `💰 **Valor Total de Empeño:** \`${n(totalPawnValue)} nexocoins\`\n` +
+            `💡 *Puedes vender o empeñar una reliquia en cualquier momento con \`/asalto empeñar <reliquia>\`.*`,
+        )
+        .addFields(fields);
+
+      await interaction.reply({ embeds: [embed] });
+      return;
+    }
+
+    if (sub === "empeñar") {
+      const relicQuery = interaction.options.getString("reliquia", true);
+      const res = pawnRelic(gid, interaction.user.id, relicQuery);
+
+      if (!res.success || !res.relic) {
+        await interaction.reply({
+          embeds: [errorEmbed("Empeño Denegado", res.error ?? "No se pudo empeñar la reliquia.")],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.reply({
+        embeds: [
+          successEmbed(
+            "💎 Reliquia Empeñada con Éxito",
+            `Has entregado **${res.relic.emoji} ${res.relic.name}** (*${res.relic.rarity}*) al perito tasador del inframundo.\n\n` +
+              `💰 **Fondos recibidos:** Se han ingresado **${n(res.payout!)} nexocoins** directamente en tu billetera.`,
+          ),
+        ],
+      });
       return;
     }
 
@@ -464,13 +619,16 @@ const command: Command = {
           return;
         }
 
-        const { security: updatedSec, justUnlockedDavito } = setTargetSecurityLevel(gid, targetDef.id, levelArg);
+        const { security: updatedSec, justUnlockedDavito, justReachedLevel10 } = setTargetSecurityLevel(gid, targetDef.id, levelArg);
+        syncHeistPinnedGuide(interaction.client, gid).catch(() => {});
 
         let unlockNotice = "";
         if (justUnlockedDavito) {
           unlockNotice =
             `\n\n🚨 **¡¡¡ALERTA OMEGA: LA FORTALEZA DE DAVITO HA SIDO DESBLOQUEADA!!!** 🚨\n` +
-            `¡Todos los objetivos estándar han alcanzado el Nivel 10! El asalto secreto ya está disponible en \`/asalto iniciar objetivo:davito\`.`;
+            `¡Todos los objetivos estándar han completado su hito de Nivel 10! El asalto secreto ya está disponible en \`/asalto iniciar objetivo:davito\`.`;
+        } else if (justReachedLevel10) {
+          unlockNotice = `\n\n⭐ **¡Hito de Nivel 10 registrado permanentemente!** Este objetivo ya cuenta como completado para el descifrado secreto de Davito.`;
         }
 
         await interaction.reply({
@@ -482,6 +640,7 @@ const command: Command = {
                 `📜 **Descripción:** *${updatedSec.tier.description}*\n` +
                 `▸ **Dificultad base:** \`${updatedSec.tier.difficultyMod}%\`\n` +
                 `▸ **Multiplicador de botín:** \`×${updatedSec.tier.lootMultiplier}\`` +
+                (updatedSec.level10Reached ? `\n⭐ **Hito Nv. 10:** Registrado permanentemente` : "") +
                 unlockNotice,
             ),
           ],
@@ -530,6 +689,26 @@ const command: Command = {
           value: t.id,
         })),
       );
+      return;
+    }
+
+    if (focused.name === "reliquia") {
+      const gid = interaction.guildId;
+      const userRelics = getUserRelics(gid, interaction.user.id);
+      const q = focused.value.toLowerCase().trim();
+      const filtered = userRelics.filter(
+        (r) =>
+          r.def?.name.toLowerCase().includes(q) ||
+          r.def?.rarity.toLowerCase().includes(q) ||
+          r.relicId.toLowerCase().includes(q),
+      );
+      await interaction.respond(
+        filtered.slice(0, 25).map((r) => ({
+          name: `${r.def?.emoji ?? "💎"} ${r.def?.name ?? r.relicId} (${r.def?.rarity ?? "Rara"} · ${n(r.def?.pawnValue ?? 0)} 🪙)`,
+          value: r.id,
+        })),
+      );
+      return;
     }
   },
 };

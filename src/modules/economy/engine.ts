@@ -308,7 +308,7 @@ export function addPot(guildId: string, amount: number): number {
 
 const lotteryLock = new Set<string>();
 
-export function drawLottery(guildId: string): { winner: string; pot: number } | null {
+export function drawLottery(guildId: string): { winner: string; pot: number; burned: number } | null {
   if (lotteryLock.has(guildId)) return null;
   lotteryLock.add(guildId);
   try {
@@ -318,7 +318,7 @@ export function drawLottery(guildId: string): { winner: string; pot: number } | 
   }
 }
 
-function drawLotteryUnlocked(guildId: string): { winner: string; pot: number } | null {
+function drawLotteryUnlocked(guildId: string): { winner: string; pot: number; burned: number } | null {
   const holders = getDb()
     .prepare("SELECT user_id, inventory FROM economy WHERE guild_id = ?")
     .all(guildId) as { user_id: string; inventory: string }[];
@@ -336,7 +336,11 @@ function drawLotteryUnlocked(guildId: string): { winner: string; pot: number } |
   const lot = getLottery(guildId);
   if (!tickets.length || lot.pot <= 0) return null;
   const winner = tickets[Math.floor(Math.random() * tickets.length)]!;
-  const pot = lot.pot;
+  const rawPot = lot.pot;
+  // 25% tasa de hacienda y quema deflacionaria automática
+  const burned = Math.floor(rawPot * 0.25);
+  const netPrize = rawPot - burned;
+
   getDb().prepare("UPDATE lottery SET pot = 0, last_draw = ? WHERE guild_id = ?").run(Date.now(), guildId);
   for (const h of holders) {
     const row = getEco(guildId, h.user_id);
@@ -348,9 +352,9 @@ function drawLotteryUnlocked(guildId: string): { winner: string; pot: number } |
     }
   }
   const w = getEco(guildId, winner);
-  addWallet(w, pot);
-  saveEco(w);
-  return { winner, pot };
+  addWallet(w, netPrize);
+  saveEco(w, "Premio neto de lotería semanal (25% quemado)");
+  return { winner, pot: netPrize, burned };
 }
 
 export const CD = {

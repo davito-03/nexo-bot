@@ -69,10 +69,11 @@ const command: Command = {
       const inv = invOf(eco);
       const currentTickets = inv.boleto ?? 0;
       
-      const embed = infoEmbed("🎟️ Lotería Semanal de Nexo", "¡Participa en la lotería y llévate todo el bote acumulado!")
+      const embed = infoEmbed("🎟️ Lotería Semanal de Nexo", "¡Participa en la lotería y llévate el bote acumulado con quema deflacionaria!")
         .addFields(
-          { name: "💰 Bote Actual", value: `**${n(lot.pot)}**`, inline: true },
+          { name: "💰 Bote Acumulado", value: `**${n(lot.pot)}**`, inline: true },
           { name: "🎫 Tus Boletos", value: `**${currentTickets}** / ${MAX_TICKETS}`, inline: true },
+          { name: "🏛️ Tasa & Quema", value: `**25%** quemado automáticamente`, inline: true },
           { name: "⏰ Sorteo", value: "Todos los domingos a las 20:00 (Hora España peninsular)", inline: false }
         );
         
@@ -104,7 +105,7 @@ export async function tickWeeklyLottery(client: NexoClient): Promise<void> {
                         
         if (channel && channel instanceof TextChannel) {
           if (result.winner) {
-            const embed = successEmbed("🎉 ¡GANADOR DE LA LOTERÍA! 🎉", `¡El sorteo semanal de la lotería ha finalizado!\n\n🏆 **GANADOR:** <@${result.winner}>\n💰 **PREMIO:** ${n(result.pot)}\n\n*¡Compra tus boletos para el próximo sorteo con \`/loteria comprar\`!*`);
+            const embed = successEmbed("🎉 ¡GANADOR DE LA LOTERÍA! 🎉", `¡El sorteo semanal de la lotería ha finalizado!\n\n🏆 **GANADOR:** <@${result.winner}>\n💰 **PREMIO NETO:** ${n(result.pot)}\n🔥 **QUEMA DEFLACIONARIA (25%):** ${n(result.burned)} destruidas de la economía\n\n*¡Compra tus boletos para el próximo sorteo con \`/loteria comprar\`!*`);
             await channel.send({ content: `<@${result.winner}>`, embeds: [embed] });
           } else {
             const embed = infoEmbed("🎟️ Resultados de la Lotería", `El sorteo semanal ha finalizado, pero nadie tenía boletos. El bote de **${n(result.pot)}** se acumula para la próxima semana.`);

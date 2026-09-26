@@ -17,6 +17,10 @@ import { OFFICIAL_GUILD_ID } from "./constants.js";
 import { restoreBumpReminderTimers } from "./modules/bump/engine.js";
 import { setTaxClient, ensureBeneficiaryBalanceEqualityRebalance } from "./modules/economy/tax.js";
 import { setTransactionClient } from "./modules/economy/transactionLogger.js";
+import { syncHeistPinnedGuide } from "./modules/economy/heistGuideEmbed.js";
+import { syncPokemonPinnedGuide } from "./modules/pets/pokemonGuideEmbed.js";
+import { syncAllGangRoles } from "./modules/economy/gangs.js";
+import { tickServerStats } from "./modules/serverStats/engine.js";
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,6 +43,10 @@ async function main(): Promise<void> {
     await deployCommands(client);
     restoreBumpReminderTimers(client);
     ensureBeneficiaryBalanceEqualityRebalance(OFFICIAL_GUILD_ID);
+    syncHeistPinnedGuide(client, OFFICIAL_GUILD_ID).catch(() => {});
+    syncPokemonPinnedGuide(client).catch(() => {});
+    syncAllGangRoles(client).catch(() => {});
+    tickServerStats(client).catch(() => {});
     client.user?.setPresence({
       activities: [{ name: "Nexo · /help", type: 3 }],
       status: "online",

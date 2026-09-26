@@ -38,7 +38,15 @@ export function initDatabase(): Db {
   migrateQuoteDaily(db);
   migrateBankHeists(db);
   migrateUserPets(db);
+  migrateUserPokedex(db);
+  migrateUserGymBadges(db);
+  migratePokemonSystems(db);
   migrateSecurityItemLimits(db);
+  migrateHeistExpansion(db);
+  migrateHeistLevel10Milestones(db);
+  migrateGangInvestments(db);
+  migrateReputationAndFeedback(db);
+  migrateTicketMessages(db);
   return db;
 }
 
@@ -182,7 +190,7 @@ function migrateAiPrompt(database: Db): void {
     if (typeof prompt !== "string") continue;
     const stock = (prompt.includes("Eres Neko, la asistente de soporte") || prompt.includes("Eres Neko, la asistente oficial de soporte")) && prompt.includes("NORMAS OFICIALES DE NEXO");
     if (!stock) continue;
-    if (prompt.includes("SISTEMA RPG COMPLETO") && prompt.includes("/mineria") && prompt.includes("/imagen") && prompt.includes("/rpg clan solicitudes") && prompt.includes("/boosts lista") && prompt.includes("/casino rusa-casa") && prompt.includes("XRP") && prompt.includes("Omnigranja Nexo Eternity") && prompt.includes("Eventos aleatorios de mercado") && prompt.includes("28 álbumes") && prompt.includes("título/premio")) continue;
+    if (prompt.includes("UNIVERSO POKÉMON COMPLETO") && prompt.includes("ASALTOS COOPERATIVOS")) continue;
     cfg.ai = { ...cfg.ai, systemPrompt: DEFAULT_GUILD_CONFIG.ai.systemPrompt };
     database
       .prepare("UPDATE guild_config SET config = ?, updated_at = ? WHERE guild_id = ?")
@@ -463,6 +471,119 @@ function migrateBankHeists(database: Db): void {
   }
 }
 
+function migrateHeistLevel10Milestones(database: Db): void {
+  const cols = new Set(
+    (database.prepare("PRAGMA table_info(heist_target_security)").all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!cols.has("max_level_reached")) {
+    try {
+      database.exec("ALTER TABLE heist_target_security ADD COLUMN max_level_reached INTEGER NOT NULL DEFAULT 1");
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!cols.has("level_10_reached")) {
+    try {
+      database.exec("ALTER TABLE heist_target_security ADD COLUMN level_10_reached INTEGER NOT NULL DEFAULT 0");
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    database.exec("UPDATE heist_target_security SET level_10_reached = 1, max_level_reached = 10 WHERE security_level >= 10");
+  } catch {
+    /* ignore */
+  }
+}
+
+function migrateGangInvestments(database: Db): void {
+  try {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS gang_investments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        gang_id TEXT NOT NULL,
+        investor_id TEXT NOT NULL,
+        amount_invested INTEGER NOT NULL,
+        accumulated_dividends INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        last_collected_at INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_gang_inv_user ON gang_investments (guild_id, investor_id);
+      CREATE INDEX IF NOT EXISTS idx_gang_inv_gang ON gang_investments (guild_id, gang_id);
+    `);
+  } catch {
+    /* ignore */
+  }
+}
+
+function migrateReputationAndFeedback(database: Db): void {
+  try {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS user_reputation (
+        guild_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        points INTEGER NOT NULL DEFAULT 0,
+        last_given_at INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS reputation_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        from_user_id TEXT NOT NULL,
+        to_user_id TEXT NOT NULL,
+        reason TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rep_to_user ON reputation_logs (guild_id, to_user_id);
+
+      CREATE TABLE IF NOT EXISTS ticket_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        ticket_id INTEGER NOT NULL,
+        opener_id TEXT NOT NULL,
+        staff_id TEXT,
+        rating INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS user_profile_customization (
+        guild_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        theme TEXT NOT NULL DEFAULT 'cyberpunk',
+        bio TEXT,
+        PRIMARY KEY (guild_id, user_id)
+      );
+    `);
+  } catch {
+    /* ignore */
+  }
+}
+
+function migrateTicketMessages(database: Db): void {
+  try {
+    const cols = new Set(
+      (database.prepare("PRAGMA table_info(ticket_messages)").all() as { name: string }[]).map((c) => c.name),
+    );
+    if (!cols.has("message_id")) {
+      database.exec("ALTER TABLE ticket_messages ADD COLUMN message_id TEXT;");
+    }
+    if (!cols.has("original_content")) {
+      database.exec("ALTER TABLE ticket_messages ADD COLUMN original_content TEXT;");
+    }
+    if (!cols.has("edited_at")) {
+      database.exec("ALTER TABLE ticket_messages ADD COLUMN edited_at INTEGER;");
+    }
+    if (!cols.has("deleted_at")) {
+      database.exec("ALTER TABLE ticket_messages ADD COLUMN deleted_at INTEGER;");
+    }
+    database.exec("CREATE INDEX IF NOT EXISTS idx_ticket_msg_id ON ticket_messages (message_id);");
+  } catch {
+    /* ignore */
+  }
+}
+
 function migrateUserPets(database: Db): void {
   const cols = new Set(
     (database.prepare("PRAGMA table_info(user_pets)").all() as { name: string }[]).map((c) => c.name),
@@ -493,6 +614,67 @@ function migrateUserPets(database: Db): void {
       CREATE INDEX IF NOT EXISTS idx_user_pets_user ON user_pets (guild_id, user_id);
     `);
   }
+
+  // Migración automática de mascotas clásicas a especies Pokémon oficiales
+  database.exec(`
+    UPDATE user_pets SET pet_type = 'charizard' WHERE pet_type = 'dragon';
+    UPDATE user_pets SET pet_type = 'noctowl' WHERE pet_type = 'buho';
+    UPDATE user_pets SET pet_type = 'vulpix' WHERE pet_type = 'zorro';
+    UPDATE user_pets SET pet_type = 'growlithe' WHERE pet_type = 'shiba' OR pet_type = 'perro';
+    UPDATE user_pets SET pet_type = 'meowth' WHERE pet_type = 'gato';
+  `);
+}
+
+function migrateUserPokedex(database: Db): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS user_pokedex (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      species_id TEXT NOT NULL,
+      caught_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, user_id, species_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_pokedex_user ON user_pokedex (guild_id, user_id);
+    UPDATE user_pokedex SET species_id = 'charizard' WHERE species_id = 'dragon';
+    UPDATE user_pokedex SET species_id = 'noctowl' WHERE species_id = 'buho';
+    UPDATE user_pokedex SET species_id = 'vulpix' WHERE species_id = 'zorro';
+    UPDATE user_pokedex SET species_id = 'growlithe' WHERE species_id = 'shiba' OR species_id = 'perro';
+    UPDATE user_pokedex SET species_id = 'meowth' WHERE species_id = 'gato';
+    INSERT OR IGNORE INTO user_pokedex (guild_id, user_id, species_id, caught_at)
+      SELECT guild_id, user_id, pet_type, created_at FROM user_pets;
+  `);
+}
+
+function migrateUserGymBadges(database: Db): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS user_gym_badges (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      badge_id TEXT NOT NULL,
+      beaten_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, user_id, badge_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_gym_badges ON user_gym_badges (guild_id, user_id);
+  `);
+}
+
+function migratePokemonSystems(database: Db): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS user_pokemon_daycare (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      pet_id INTEGER NOT NULL,
+      deposited_at INTEGER NOT NULL,
+      cost_per_hour INTEGER NOT NULL DEFAULT 100,
+      PRIMARY KEY (guild_id, user_id, pet_id)
+    );
+    CREATE TABLE IF NOT EXISTS user_pokemon_salary (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      last_claimed_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, user_id)
+    );
+  `);
 }
 
 function migrateSecurityItemLimits(database: Db): void {
@@ -560,6 +742,108 @@ function migrateSecurityItemLimits(database: Db): void {
         /* ignore */
       }
     }
+  }
+}
+
+function migrateHeistExpansion(database: Db): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS gangs (
+      id TEXT NOT NULL PRIMARY KEY,
+      guild_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      leader_id TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      balance INTEGER NOT NULL DEFAULT 0,
+      total_loot_earned INTEGER NOT NULL DEFAULT 0,
+      level INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_gangs_guild ON gangs (guild_id, total_loot_earned DESC);
+
+    CREATE TABLE IF NOT EXISTS gang_members (
+      guild_id TEXT NOT NULL,
+      gang_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
+      joined_at INTEGER NOT NULL,
+      contribution INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gang_members_gang ON gang_members (guild_id, gang_id);
+
+    CREATE TABLE IF NOT EXISTS gang_upgrades (
+      guild_id TEXT NOT NULL,
+      gang_id TEXT NOT NULL,
+      upgrade_id TEXT NOT NULL,
+      level INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (guild_id, gang_id, upgrade_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_heist_relics (
+      id TEXT NOT NULL PRIMARY KEY,
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      relic_id TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      obtained_at INTEGER NOT NULL,
+      is_displayed INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_relics_user ON user_heist_relics (guild_id, user_id, obtained_at DESC);
+
+    CREATE TABLE IF NOT EXISTS police_officers (
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      rank TEXT NOT NULL DEFAULT 'Cadete',
+      joined_at INTEGER NOT NULL,
+      intercepts_won INTEGER NOT NULL DEFAULT 0,
+      total_fines_collected INTEGER NOT NULL DEFAULT 0,
+      cooldown_until INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_police_officers ON police_officers (guild_id, user_id);
+
+    CREATE TABLE IF NOT EXISTS gang_territories (
+      guild_id TEXT NOT NULL,
+      district_id TEXT NOT NULL,
+      controlling_gang_id TEXT,
+      influence_points INTEGER NOT NULL DEFAULT 0,
+      last_tribute_at INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, district_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gang_territories ON gang_territories (guild_id, district_id);
+
+    CREATE TABLE IF NOT EXISTS gang_territory_influence (
+      guild_id TEXT NOT NULL,
+      district_id TEXT NOT NULL,
+      gang_id TEXT NOT NULL,
+      points INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, district_id, gang_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS gang_contracts (
+      guild_id TEXT NOT NULL,
+      gang_id TEXT NOT NULL,
+      contract_id TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      target_value INTEGER NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      reward_coins INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, gang_id, contract_id)
+    );
+  `);
+
+  const gangCols = new Set(
+    (database.prepare("PRAGMA table_info(gangs)").all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!gangCols.has("last_tribute_at")) {
+    database.exec("ALTER TABLE gangs ADD COLUMN last_tribute_at INTEGER NOT NULL DEFAULT 0;");
+  }
+  if (!gangCols.has("role_id")) {
+    database.exec("ALTER TABLE gangs ADD COLUMN role_id TEXT NOT NULL DEFAULT '';");
   }
 }
 

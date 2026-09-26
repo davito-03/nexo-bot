@@ -12,18 +12,18 @@ import type { NexoClient } from "../../client.js";
 import { DAVITO_ROLE_ID } from "../../modules/economy/heistEngine.js";
 
 export const HELP_CATEGORIES = [
-  { id: "overview", label: "Visión General", emoji: "🏠", desc: "Resumen y guía rápida de Nexo Bot" },
-  { id: "asaltos", label: "Asaltos & Operaciones", emoji: "🚨", desc: "Golpes tácticos cooperativos, 6 objetivos, roles, mercado negro y QTEs" },
+  { id: "overview", label: "Visión General", emoji: "🏠", desc: "Resumen y novedades de todos los sistemas de Nexo" },
+  { id: "asaltos", label: "Asaltos & Inframundo", emoji: "🚨", desc: "Golpes tácticos cooperativos, 9 objetivos, roles, mercado negro y policía" },
   { id: "economia", label: "Economía & Finanzas", emoji: "🪙", desc: "Banca privada, propiedades, oficios, cartas gacha y comercio" },
   { id: "trading", label: "Trading, Criptos & Minería", emoji: "📈", desc: "Bolsa de valores, criptos, dividendos 12:00 y minería nivel 30" },
   { id: "pesca", label: "Pesca Deportiva & Marina", emoji: "🎣", desc: "Expediciones fluviales, cañas, cebos, capturas y venta en lote" },
   { id: "caza", label: "Caza & Expediciones", emoji: "🏹", desc: "Caza en el bosque, rifles, trampas reforzadas y trofeos" },
-  { id: "casino", label: "Casino & Apuestas", emoji: "🎰", desc: "Jackpot Progresivo, tragaperras, ruleta, blackjack y duelos" },
+  { id: "casino", label: "Casino & Apuestas", emoji: "🎰", desc: "Jackpot Global automático, animaciones de slots, blackjack y salas" },
   { id: "rpg", label: "RPG, Mazmorras & Clanes", emoji: "⚔️", desc: "Clases, combates tácticos, mazmorras y hermandades" },
   { id: "moderacion", label: "Moderación & Sanciones", emoji: "🛡️", desc: "Warns, bans, timeouts, moderación masiva y apelaciones" },
   { id: "tickets", label: "Tickets & Asistente IA", emoji: "🎫", desc: "Paneles de atención, IA Neko y transcripciones HTML" },
-  { id: "comunidad", label: "Comunidad & Niveles", emoji: "🎉", desc: "Minijuegos exprés de chat, niveles, misiones y sorteos" },
-  { id: "diversion", label: "Diversión, Mascotas & Voz", emoji: "🎭", desc: "Mascotas virtuales, imágenes IA (FLUX), confesiones y voz" },
+  { id: "comunidad", label: "Comunidad & Minijuegos", emoji: "🎉", desc: "Minijuegos flash con premios, contador, DISBOARD y misiones" },
+  { id: "diversion", label: "Diversión, Pokémon & Voz", emoji: "🔴", desc: "Pokémon (Gen 1-3, 386 criaturas), 24 Gimnasios, Duelos, IA FLUX y voz" },
   { id: "admin", label: "Administración & Logs", emoji: "⚙️", desc: "Configuración global, registros de auditoría y copias de seguridad" },
 ];
 
@@ -124,8 +124,8 @@ export function renderHelpView(
           inline: false,
         },
         {
-          name: "🎭  Diversión, Mascotas & Voz",
-          value: "Colección de hasta 10 mascotas con expediciones en paralelo, juegos clásicos (Conecta 4, Ahorcado), cofres aéreos y recompensas de voz, imágenes IA (FLUX) y confesiones.",
+          name: "🎭  Diversión, Pokémon & Voz",
+          value: "Sistema Pokémon (Gen 1-3, 386 criaturas), 24 Gimnasios oficiales, Duelos PvP con apuestas en NexoCoins, Zona Safari, Pokédex, Guardería, recompensas de voz, imágenes IA (FLUX) y confesiones.",
           inline: false,
         },
         {
@@ -145,7 +145,7 @@ export function renderHelpView(
         {
           name: "🎮  Comandos Principales (/asalto y /crimen)",
           value:
-            `▸ \`/asalto iniciar [objetivo]\` · Inicia un lobby táctico (hasta 8 asaltantes, o 16 en Davito) con 65s para reclutar cómplices y elegir roles.\n` +
+            `▸ \`/asalto iniciar [objetivo]\` · Inicia un lobby táctico (hasta 12 asaltantes, o 24 en Davito) con 65s para reclutar cómplices y elegir roles.\n` +
             `▸ \`/asalto info [objetivo]\` · Consulta el nivel de seguridad (1 a 10), modificadores, botín estimado y el temporizador de cooldown en tiempo real.\n` +
             `▸ \`/asalto rol elegir|ver|lista\` · Especialízate en las 7 ramas del crimen organizado (Nv. 1 a 10 con títulos honoríficos).\n` +
             `▸ \`/asalto mercadonegro ver|comprar\` · Armamento y equipamiento colectivo para toda la banda.\n` +
@@ -168,15 +168,17 @@ export function renderHelpView(
           inline: false,
         },
         {
-          name: "🌟  Sinergias de Banda & Mercado Negro",
+          name: "🌟  Sinergias Temáticas & Mercado Negro",
           value:
-            `▸ **Sinergias de Equipo:** 3 roles distintos activan *Sinergia Táctica* (+5% éxito, +10% botín); 5 roles activan *Sinergia Perfecta* (+10% éxito, +20% botín); los 7 roles activan *Sindicato Total* (+14% éxito, +30% botín).\n` +
-            `▸ 📟 **Inhibidor EMP:** Pulso electromagnético que apaga sistemas electrónicos de seguridad (+6% éxito colectivo).\n` +
-            `▸ 💣 **C4 Militar:** Carga plástica que revienta cajas de seguridad adicionales (+20% botín total).\n` +
-            `▸ 🔥 **Taladro Térmico:** Funde pernos acorazados de tungsteno y titanio (+30% botín total).\n` +
-            `▸ 🚗 **Furgón Blindado:** Garantiza un 60% de probabilidad de huida ante cualquier fallo policial.\n` +
-            `▸ 💉 **Adrenalina:** Concede una segunda oportunidad inmediata si el golpe falla por un margen estrecho.\n` +
-            `▸ 🎭 **Máscara Balística:** Oculta identidades y reduce drásticamente las horas de arresto en el calabozo.`,
+            `▸ **Sinergias Temáticas de Roles:** Combinaciones activas automáticas:\n` +
+            `  • *Dúos Tácticos:* Infiltración Cibernética (+2.5% éxito, +8% botín), Fuerza de Choque (+2.5% éxito, +10% botín), Evacuación & Soporte (+2% éxito, -25% calabozo), Guerra Psicológica (+2.5% éxito, -15% multas), Extracción Fantasma (+2% éxito, +5% huida), Intimidación Táctica (+2.5% éxito), Golpe y Fuga (+1.5% éxito, +12% botín).\n` +
+            `  • *Tríos & Sindicatos:* Tríada de Bóveda (+3.5% éxito, +15% botín), Escuadrón Operativo (+3.5% éxito, -20% calabozo), Mente Maestra & Sombras (+3.5% éxito, -20% multas), Sindicato Mayor (+3.5% éxito, +12% botín) y Sindicato Absoluto (+6% éxito, +20% botín). Máximo acumulable: **+9% de éxito** y **+35% de botín**.\n` +
+            `▸ 📟 **Inhibidor EMP:** Pulso electromagnético que apaga sistemas electrónicos (+4% éxito colectivo).\n` +
+            `▸ 💣 **C4 Militar:** Carga plástica que revienta cajas de seguridad (+15% botín total).\n` +
+            `▸ 🔥 **Taladro Térmico:** Funde pernos acorazados de tungsteno y titanio (+25% botín total).\n` +
+            `▸ 🚗 **Furgón Blindado:** Garantiza un 45% de huida ante fallo policial (hasta 40% adicional con Piloto).\n` +
+            `▸ 💉 **Adrenalina:** Segunda oportunidad inmediata si el golpe falla por un margen estrecho (≤4%).\n` +
+            `▸ 🎭 **Máscara Balística:** Oculta identidades y reduce drásticamente el tiempo de calabozo.`,
           inline: false,
         },
         {
@@ -190,24 +192,24 @@ export function renderHelpView(
             `▸ 🏢 **Sede Nexo Corp:** Servidores cuánticos corporativos y patentes exclusivas (Botín base: 100k - 180k).\n` +
             `▸ ⚓ **Submarino Nuclear "Leviathan":** Coloso sumergido a 3.000m con secretos atómicos (Botín base: 130k - 220k).\n` +
             `▸ 🛰️ **Estación Orbital Quantum:** Instalación espacial con tecnología de antimateria (Botín base: 180k - 320k).\n` +
-            `▸ **Escala de Seguridad (1-10):** Cada victoria sube +1 nivel de seguridad (más blindaje y botín hasta ×5.5); una derrota resta -1 nivel.\n` +
+            `▸ **Escala de Seguridad (1-10):** Cada victoria sube +1 nivel de blindaje (dificultad rebalanceada con tope de éxito independiente por nivel: máx 82% en Nv. 1 hasta 55% máx en Nv. 10; ningún nivel alcanza el 100%) y botín hasta ×5.5; derrotas bajan -1 nivel.\n` +
             `▸ **Cooldown de Alerta Roja:** Cada golpe activa un enfriamiento táctico para ese objetivo (visible en \`/asalto info\`).`,
           inline: false,
         },
         {
           name: "⚡  Mecánicas en Vivo: Canvas, QTEs & Consecuencias",
           value:
-            `▸ **HUD Telemétrico en Tiempo Real:** Imagen Canvas generada en vivo con avatares reales, roles y telemetría de hasta 16 asaltantes.\n` +
-            `▸ **Incidentes Tácticos (QTE):** Decisiones interactivas en directo por botones (9-12s) con dilemas y roles recomendados.\n` +
-            `▸ **Multas Judiciales:** En caso de captura en golpes estándar, multas judiciales proporcionales al patrimonio (máximo 500.000 🪙).\n` +
-            `▸ **Régimen Davito:** En la Fortaleza de Davito, el fracaso supone la **pérdida del 25% de todo el patrimonio** acumulado (sin tope).`,
+            `▸ **HUD Telemétrico en Tiempo Real:** Gráfico Canvas dinámico generado en directo con avatares reales, roles y telemetría de hasta 24 asaltantes.\n` +
+            `▸ **Incidentes Tácticos Variables (1 a 3 QTEs):** Cada asalto estándar genera entre 1 y 3 incidentes interactivos con decisiones por botones (80% 1 QTE, 15% 2 QTEs, 5% 3 QTEs). Todos los incidentes disponen de opciones especializadas para cada uno de los 7 roles.\n` +
+            `▸ **Multas Judiciales:** En caso de captura en golpes estándar, multas proporcionales de hasta 500.000 🪙 (el Negociador reduce hasta un 60%).\n` +
+            `▸ **Régimen Davito:** En la Fortaleza de Davito, el fracaso supone la **pérdida íntegra del 25% de todo el patrimonio** acumulado (cartera + banco sin límite).`,
           inline: false,
         },
         {
           name: "👑  El Golpe Secreto Definitivo: Fortaleza de Davito",
           value:
             `▸ **Condición de Desbloqueo:** Permanece totalmente oculto hasta que **los 8 objetivos estándar alcanzan el Nivel 10 simultáneamente**.\n` +
-            `▸ **Reglas Extremas:** Permite bandas colosales de **hasta 16 asaltantes**, enfrenta un **gauntlet implacable de 7 Quick Time Events consecutivos**, y posee una dificultad matemáticamente calibrada para ser casi imposible (**estrictamente menor al 0.77% de éxito** incluso con el mejor equipo y roles al máximo).\n` +
+            `▸ **Reglas Extremas:** Permite bandas colosales de **hasta 24 asaltantes**, enfrenta un **gauntlet implacable de 7 Quick Time Events consecutivos**, y posee una dificultad matemáticamente calibrada para ser casi imposible (**estrictamente menor al 0.77% de éxito** incluso con el mejor equipo y roles al máximo).\n` +
             `▸ **Recompensa Legendaria:** Si la banda logra la hazaña, cada superviviente recibe **🪙 100.000.000 de Nexocoins** y el exclusivo rol honorífico <@&${DAVITO_ROLE_ID}>.`,
           inline: false,
         },
@@ -455,17 +457,16 @@ export function renderHelpView(
           value:
             `▸ \`/casino jackpot-global\` · Consulta el pozo del Jackpot Global acumulado y su último ganador.\n` +
             `  └ **1% acumulativo:** Cada apuesta jugada en cualquier modalidad del casino aporta un 1% al gran pozo.\n` +
-            `  └ **¡Gana el Jackpot!** Obtén una línea de tres diamantes (**💎 💎 💎**) o tres sietes (**7️⃣ 7️⃣ 7️⃣**) en \`/casino slots\` para llevarte el bote completo acumulado.`,
+            `  └ **¡Gana el Jackpot!** Obtén una línea de tres diamantes (**💎 💎 💎**) o tres sietes (**7️⃣ 7️⃣ 7️⃣**) en \`/casino slots\` para llevarte el bote acumulado (**¡ahora se entrega de forma 100% automática a tu monedero!**).`,
           inline: false,
         },
         {
           name: "🃏  Juegos Individuales de Cartas & Suerte",
           value:
-            `▸ \`/casino blackjack <apuesta>\` · 21 contra la casa. Si las dos cartas iniciales tienen el mismo valor, puedes hacer Split.\n` +
-            `  └ **Split:** divide la mano en dos, paga una segunda apuesta igual y juega ambas manos por separado contra el dealer.\n` +
-            `▸ \`/casino slots <apuesta>\` · Máquina tragaperras de 3 rodillos con multiplicadores y opción de activar el Jackpot Global.\n` +
-            `▸ \`/casino rusa-casa <apuesta>\` · Ruleta rusa contra la casa: dispara para subir el multiplicador o cobra antes de encontrar la bala.\n` +
-            `▸ \`/casino ruleta <apuesta> <color>\` · Ruleta de casino europea (rojo x2, negro x2, verde x14).\n` +
+            `▸ \`/casino blackjack <apuesta>\` · 21 contra la casa con split si las dos cartas iniciales coinciden.\n` +
+            `▸ \`/casino slots <apuesta>\` · Máquina tragaperras animada con rodillos giratorios en tiempo real y opción de Jackpot Global.\n` +
+            `▸ \`/casino rusa-casa <apuesta>\` · Ruleta rusa contra la casa: dispara para subir el multiplicador o cobra antes del tiro fatal.\n` +
+            `▸ \`/casino ruleta <apuesta> <color>\` · Ruleta de casino europea animada (rojo x2, negro x2, verde x14).\n` +
             `▸ \`/casino mayor <apuesta>\` · Apuesta si la siguiente carta de la baraja será superior o inferior.\n` +
             `▸ \`/casino coinflip <apuesta> <lado>\` · Cara o cruz con lanzamiento de moneda en alta tensión.\n` +
             `▸ \`/casino dados <apuesta>\` · Tira los dados y gana si sale una puntuación alta (4, 5 o 6).\n` +
@@ -710,6 +711,16 @@ export function renderHelpView(
           inline: false,
         },
         {
+          name: "⭐  Reputación & Tarjetas de Perfil (/perfil y /rep)",
+          value:
+            `▸ \`/perfil ver [usuario] [tema]\` · Tarjeta visual HD en Canvas con avatar luminoso, nivel, progreso, economía, karma y voz.\n` +
+            `▸ \`/perfil tema <estilo>\` · Elige tu estética favorita: Cyberpunk, Neón Sakura, Oro Imperial, Esmeralda o Cósmico.\n` +
+            `▸ \`/rep dar <usuario> [motivo]\` · Entrega tu punto diario de reputación/karma a otro miembro con recompensa en NexoCoins.\n` +
+            `▸ \`/rep ver [usuario]\` · Consulta el historial de agradecimientos y expediente de karma de un miembro.\n` +
+            `▸ \`/rep top\` · Cuadro de honor de los miembros más apreciados de la comunidad.`,
+          inline: false,
+        },
+        {
           name: "🌐  Métricas & Estadísticas del Servidor",
           value:
             `▸ \`/serverinfo\` · Estadísticas completas, métricas, canales y detalles técnicos del servidor.\n` +
@@ -721,30 +732,43 @@ export function renderHelpView(
     embed
       .setTitle(`🎭 Diversión, Mascotas, Inteligencia Artificial & Voz`)
       .setDescription(
-        `Mascotas virtuales con expediciones pasivas, generación artística con IA, confesiones, roleplay y voicechat dinámico.\n` +
+        `Universo Pokémon (386 criaturas de Gen 1-3), Gimnasios de Kanto/Johto/Hoenn, Duelos PvP con apuestas en NexoCoins, Zona Safari, generación artística con IA, confesiones y voicechat.\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
       )
       .addFields(
         {
-          name: "🐾  Colección & Cuidados de Mascotas (/mascota)",
+          name: "🔴  Universo Pokémon (/pokemon)",
           value:
-            `▸ \`/mascota tienda\` · Catálogo de especies (Gato 🐱, Shiba 🐶, Zorro 🦊, Búho 🦉 y Dragón 🐉) con bonificaciones pasivas.\n` +
-            `▸ \`/mascota adoptar <especie> <nombre>\` · Adopta un nuevo compañero (¡puedes coleccionar hasta 10 mascotas simultáneamente!).\n` +
-            `▸ \`/mascota lista [usuario]\` · Consulta la lista completa de todas las mascotas en tu colección y su estado.\n` +
-            `▸ \`/mascota seleccionar <mascota>\` · Establece cuál de tus mascotas es tu compañera activa.\n` +
-            `▸ \`/mascota perfil [usuario] [mascota]\` · Consulta nivel, EXP, barra de felicidad (❤️❤️❤️❤️🤍) y estado.\n` +
-            `▸ \`/mascota alimentar [mascota]\` · Dale comida premium para subir su felicidad y ganar EXP (200 🪙).\n` +
-            `▸ \`/mascota acariciar [mascota]\` · Mímala y juega con ella gratis para aumentar su afecto y EXP.\n` +
-            `▸ \`/mascota renombrar <nombre> [mascota]\` · Cambia el nombre de cualquier mascota.\n` +
-            `▸ \`/mascota liberar <mascota>\` · Libera a una mascota a la naturaleza.`,
+            `▸ \`/pokemon perfil [usuario] [pokemon]\` · Consulta nivel, EXP, PS, estadísticas (ATK/DEF/VEL), sprite animado y medallero.\n` +
+            `▸ \`/pokemon equipo [usuario]\` · Consulta la lista completa de todos tus Pokémon en tu equipo (hasta 50 criaturas).\n` +
+            `▸ \`/pokemon seleccionar <pokemon>\` · Establece cuál de tus Pokémon es tu combatiente activo.\n` +
+            `▸ \`/pokemon pokedex [region] [pagina]\` · Pokédex Nacional interactiva con 649 criaturas (Kanto, Johto, Hoenn, Sinnoh y Teselia).\n` +
+            `▸ \`/pokemon capturar [region] [ball] [baya]\` · Explora la Zona Safari para atrapar Pokémon con animación de 3 balanceos.\n` +
+            `▸ \`/pokemon explorar [zona]\` · Explora Rutas, Cuevas, Bosques, Mar y Montañas en batallas clásicas por turnos para debilitar y capturar salvajes.\n` +
+            `▸ \`/pokemon evolucionar [pokemon] [piedra]\` · Evoluciona a tus criaturas por nivel o aplicando piedras evolutivas.\n` +
+            `▸ \`/pokemon intercambio <oponente> <tu_pokemon> <su_pokemon>\` · Intercambio seguro entre entrenadores con evoluciones por trade.\n` +
+            `▸ \`/pokemon raid accion:<estado|atacar>\` · Incursiones Cooperativas Globales contra Jefes Legendarios del servidor.\n` +
+            `▸ \`/pokemon alimentar [pokemon]\` · Dale bayas para aumentar su felicidad y ganar EXP (80 🪙).\n` +
+            `▸ \`/pokemon acariciar [pokemon]\` · Mima a tu compañero para subir afecto y EXP gratis cada hora.\n` +
+            `▸ \`/pokemon renombrar <nombre> [pokemon]\` · Ponle un mote único a tu compañero.\n` +
+            `▸ \`/pokemon liberar <pokemon>\` · Libera a un Pokémon de nuevo a la naturaleza.`,
           inline: false,
         },
         {
-          name: "🗺️  Expediciones & Aventuras en Paralelo (/mascota)",
+          name: "🏟️  Gimnasios, Economía & Duelos (/pokemon)",
           value:
-            `▸ \`/mascota expedicion <duracion> [mascota]\` · Envíalas a explorar (1h, 4h, 8h o 24h) para recolectar NexoCoins e ítems valiosos.\n` +
-            `▸ \`/mascota reclamar [mascota]\` · Cobra el botín y EXP.\n` +
-            `  └ **Reclamación simultánea:** Si ejecutas \`/mascota reclamar\` sin indicar mascota, ¡reclama todas las expediciones finalizadas a la vez!`,
+            `▸ \`/pokemon gimnasio accion:lista [region]\` · Consulta los 24 Líderes de Gimnasio oficiales de Kanto, Johto y Hoenn.\n` +
+            `▸ \`/pokemon gimnasio accion:retar <lider>\` · Disputa un combate de gimnasio por la medalla oficial, gran suma de NexoCoins y EXP.\n` +
+            `▸ \`/pokemon duelo <oponente> [apuesta] [pokemon]\` · Duelo PvP por turnos con apuestas opcionales en NexoCoins (¡el ganador se lleva el bote!).\n` +
+            `▸ \`/pokemon tienda [accion] [item] [cantidad]\` · Poké Mart: compra Poké Balls, Super/Ultra/Master Balls, bayas, pociones y piedras.\n` +
+            `▸ \`/pokemon mochila\` · Mochila de Entrenador: consulta tus esferas, pociones, caramelos raros y piedras evolutivas.\n` +
+            `▸ \`/pokemon usar <item> [pokemon]\` · Usa Poción Máxima, Caramelo Raro (+1 nivel) o Piedras Evolutivas (Fuego, Agua, Trueno, etc.).\n` +
+            `▸ \`/pokemon transferir <pokemon>\` · Envía un Pokémon al laboratorio del Profesor por una recompensa en NexoCoins.\n` +
+            `▸ \`/pokemon guarderia <accion> [pokemon]\` · Deja Pokémon al cuidado de la Guardería por 100 🪙/h para ganar EXP continua.\n` +
+            `▸ \`/pokemon salario\` · Reclama tu sueldo diario de entrenador según tus medallas y porcentaje de Pokédex.\n` +
+            `▸ \`/pokemon huevo <tipo>\` · Incuba y eclosiona huevos comunes, místicos o legendarios.\n` +
+            `▸ \`/pokemon expedicion <duracion> [pokemon]\` · Envíalos a explorar rutas para recolectar NexoCoins, bayas y EXP.\n` +
+            `▸ \`/pokemon reclamar [pokemon]\` · Cobra el botín y la experiencia de las expediciones concluidas.`,
           inline: false,
         },
         {
@@ -766,8 +790,9 @@ export function renderHelpView(
           inline: false,
         },
         {
-          name: "🎲  Minijuegos Clásicos & Sociales",
+          name: "🎲  Minijuegos Clásicos & Trivia Interactiva",
           value:
+            `▸ \`/trivia [categoria]\` · Concurso de preguntas y respuestas con 4 botones interactivos, temporizador y premios en NexoCoins y XP.\n` +
             `▸ \`/conecta4 <oponente> [apuesta]\` · Desafía a otro miembro a una partida interactiva de Conecta 4 (7x6) con apuestas opcionales.\n` +
             `▸ \`/ahorcado\` · Juego del ahorcado colaborativo en el chat con palabras en español, 7 vidas y premios en NexoCoins.`,
           inline: false,

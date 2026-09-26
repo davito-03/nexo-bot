@@ -2,7 +2,7 @@ import { EmbedBuilder, type GuildTextBasedChannel } from "discord.js";
 import { getDb, getGuildConfig } from "../../database/index.js";
 import { COLORS } from "../../constants.js";
 import { addWallet, deductFunds, getEco, giveItem, invOf, n, saveEco, takeItem, totalFunds } from "./engine.js";
-import { findItem } from "./shop.js";
+import { findItem, isUnsellableItem } from "./shop.js";
 
 export interface Listing {
   id: number;
@@ -25,7 +25,7 @@ export function listMarket(guildId: string): Listing[] {
 
 export function createListing(guildId: string, sellerId: string, itemId: string, qty: number, price: number): string | Listing {
   const item = findItem(guildId, itemId);
-  if (!item || item.type === "role") return "Solo se pueden vender ítems del inventario (no roles).";
+  if (!item || item.type === "role" || isUnsellableItem(guildId, itemId)) return "Solo se pueden vender ítems del inventario (no roles).";
   const q = Math.max(1, Math.floor(qty));
   const p = Math.max(10, Math.floor(price));
   if (p > 1_000_000) return "Precio máximo: 1.000.000.";

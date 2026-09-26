@@ -8,6 +8,7 @@ import {
   hasItem,
   saveEco,
   invOf,
+  setInv,
   takeItem,
   totalFunds,
   deductFundsDetailed,
@@ -79,7 +80,7 @@ export function catalog(guildId: string, opts?: { includeHidden?: boolean }): Ca
       desc: c.description,
       type: c.type === "role" ? "role" : "item",
       roleId: c.role_id,
-      unique: Boolean(c.unique_own) || c.type === "role",
+      unique: c.type === "role" ? false : Boolean(c.unique_own),
       custom: true,
     });
   }
@@ -146,7 +147,38 @@ export function restoreBaseItem(guildId: string, itemId: string): CatalogItem | 
 }
 
 export function findItem(guildId: string, id: string): CatalogItem | undefined {
-  return catalog(guildId).find((i) => i.id === id || i.name.toLowerCase() === id.toLowerCase());
+  if (!id) return undefined;
+  const norm = id.trim().toLowerCase();
+  const cat = catalog(guildId);
+
+  // 1. Coincidencia directa por id exacto
+  const byId = cat.find((i) => i.id === norm || i.id === id);
+  if (byId) return byId;
+
+  // 2. Coincidencia por nombre exacto
+  const byName = cat.find((i) => i.name.toLowerCase() === norm);
+  if (byName) return byName;
+
+  // 3. Coincidencia por nombre sin emojis ni espacios adicionales
+  const cleanNorm = norm.replace(/[\p{Emoji}\u200d]+/gu, "").trim();
+  const byCleanName = cat.find((i) => {
+    const cleanItemName = i.name.replace(/[\p{Emoji}\u200d]+/gu, "").trim().toLowerCase();
+    return cleanItemName === cleanNorm || cleanItemName === norm;
+  });
+  if (byCleanName) return byCleanName;
+
+  // 4. Coincidencia con definición de ítems base
+  const byDef = cat.find((i) => {
+    const def = getItemDef(i.id);
+    if (!def) return false;
+    const defClean = def.name.toLowerCase();
+    return defClean === norm || defClean === cleanNorm || def.id.toLowerCase() === norm.replace(/\s+/g, "_");
+  });
+  if (byDef) return byDef;
+
+  // 5. Coincidencia por slug
+  const slugTarget = slugify(id);
+  return cat.find((i) => slugify(i.name) === slugTarget || slugify(i.id) === slugTarget);
 }
 
 export function slugify(name: string): string {
@@ -223,11 +255,12 @@ export async function buyCatalogItem(
       detail: `Cuesta ${n(cost)}. Tienes ${n(total)} (Cartera: ${n(eco.wallet)} | Banco: ${n(eco.bank)}).`,
     };
   }
-  if (item.unique && hasItem(eco, item.id)) {
+  if (item.type === "role" && item.roleId) {
+    if (member.roles.cache.has(item.roleId)) {
+      return { ok: false, title: "Ya tienes el rol", detail: `Ya llevas <@&${item.roleId}>.` };
+    }
+  } else if (item.unique && hasItem(eco, item.id)) {
     return { ok: false, title: "Ya lo tienes", detail: `**${item.name}** es de un solo uso / único.` };
-  }
-  if (item.type === "role" && item.roleId && member.roles.cache.has(item.roleId)) {
-    return { ok: false, title: "Ya tienes el rol", detail: `Ya llevas <@&${item.roleId}>.` };
   }
 
   // Comprobar límites de candados y VPNs (máx 10 al día, máx 50 en inventario), excepto usuario inmune
@@ -290,15 +323,17 @@ export async function buyCatalogItem(
       };
     }
     const deductRes = deductFundsDetailed(eco, cost);
-    giveItem(eco, item.id, 1);
+    const inv = invOf(eco);
+    inv[item.id] = 1;
+    setInv(eco, inv);
     saveEco(eco);
     try {
       await member.roles.add(role, `Tienda Nexo · ${item.name}`);
     } catch (err) {
       refundFunds(eco, deductRes);
-      const inv = JSON.parse(eco.inventory || "{}") as Inv;
-      delete inv[item.id];
-      eco.inventory = JSON.stringify(inv);
+      const curInv = invOf(eco);
+      delete curInv[item.id];
+      setInv(eco, curInv);
       saveEco(eco);
       return { ok: false, title: "Error al dar el rol", detail: (err as Error).message };
     }
@@ -343,11 +378,18 @@ export async function buyCatalogItem(
 }
 
 export function autocompleteShop(guildId: string, query: string, mode: "all" | "custom" | "hidden" = "all") {
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().trim();
   const list = mode === "hidden" ? hiddenBaseItems(guildId) : catalog(guildId);
   return list
     .filter((i) => (mode === "custom" ? i.custom : true))
-    .filter((i) => !q || i.name.toLowerCase().includes(q) || i.id.includes(q))
+    .filter((i) => {
+      if (!q) return true;
+      if (i.name.toLowerCase().includes(q)) return true;
+      if (i.id.includes(q)) return true;
+      const def = getItemDef(i.id);
+      if (def?.name.toLowerCase().includes(q)) return true;
+      return false;
+    })
     .slice(0, 25)
     .map((i) => ({
       name: `${i.name} — ${i.price.toLocaleString("es-ES")} nexocoin`.slice(0, 100),
@@ -362,6 +404,7 @@ export const SHOP_CATEGORIES = [
   { id: "pesca", label: "Equipo de Pesca", emoji: "🎣", desc: "Cañas, cebos dorados y redes marinas" },
   { id: "caza", label: "Equipo de Caza", emoji: "🏹", desc: "Rifles, miras, camuflajes y trampas" },
   { id: "coleccion", label: "Joyería & Coleccionables", emoji: "💎", desc: "Gemas preciosas, reliquias arcanas y mitología" },
+  { id: "darknet", label: "Mercado Negro & Ciberarmas", emoji: "🕶️", desc: "Exploits Zero-Day, C4 militar, inhibidores y contrabando" },
   { id: "cosmetico", label: "Cosméticos & Roles", emoji: "👑", desc: "Coronas y roles exclusivos de servidor" },
 ];
 
@@ -428,9 +471,65 @@ export interface ItemSellInfo {
   emoji: string;
   sellPrice: number;
   category: string;
+  canSell?: boolean;
+}
+
+/**
+ * Determina si un ítem no se puede vender bajo ningún concepto
+ * (roles exclusivos como Millonario, Multimillonario, roles vinculados, etc.)
+ */
+export function isUnsellableItem(guildId: string, itemId: string): boolean {
+  if (!itemId) return true;
+  const idLower = itemId.toLowerCase();
+
+  // 1. Roles específicos de la economía y servidores protegidos
+  if (
+    idLower === "flexeo-de-los-10-millones" ||
+    idLower === "multimillonario" ||
+    idLower === "ludopata-enfermo" ||
+    idLower.includes("millonario") ||
+    idLower.includes("multimillonario")
+  ) {
+    return true;
+  }
+
+  // 2. Comprobar en shop_items de la base de datos si es un rol o tiene role_id
+  const custom = getDb()
+    .prepare("SELECT type, role_id, name FROM shop_items WHERE guild_id = ? AND item_id = ?")
+    .get(guildId, itemId) as { type: string; role_id: string | null; name: string } | undefined;
+
+  if (custom) {
+    if (custom.type === "role" || Boolean(custom.role_id)) return true;
+    const nameLower = custom.name.toLowerCase();
+    if (nameLower.includes("millonario") || nameLower.includes("multimillonario")) return true;
+  }
+
+  // 3. Comprobar catálogo general
+  const cat = findItem(guildId, itemId);
+  if (cat && (cat.type === "role" || Boolean(cat.roleId))) {
+    return true;
+  }
+
+  return false;
 }
 
 export function getItemSellInfo(guildId: string, itemId: string): ItemSellInfo {
+  if (isUnsellableItem(guildId, itemId)) {
+    return {
+      id: itemId,
+      name:
+        itemId === "flexeo-de-los-10-millones"
+          ? "Rol Millonario (10M)"
+          : itemId === "multimillonario"
+            ? "Rol Multimillonario"
+            : itemId,
+      emoji: "👑",
+      sellPrice: 0,
+      category: "rol",
+      canSell: false,
+    };
+  }
+
   const def = getItemDef(itemId);
   if (def) {
     let cat = def.category;
@@ -451,18 +550,21 @@ export function getItemSellInfo(guildId: string, itemId: string): ItemSellInfo {
       emoji: def.emoji,
       sellPrice: def.sellPrice,
       category: cat,
+      canSell: def.sellPrice > 0,
     };
   }
   const custom = getDb()
-    .prepare("SELECT name, price FROM shop_items WHERE guild_id = ? AND item_id = ?")
-    .get(guildId, itemId) as { name: string; price: number } | undefined;
+    .prepare("SELECT name, price, type, role_id FROM shop_items WHERE guild_id = ? AND item_id = ?")
+    .get(guildId, itemId) as { name: string; price: number; type: string; role_id: string | null } | undefined;
   if (custom) {
+    const isRole = custom.type === "role" || Boolean(custom.role_id) || isUnsellableItem(guildId, itemId);
     return {
       id: itemId,
       name: custom.name,
-      emoji: "🏷️",
-      sellPrice: Math.max(50, Math.floor(custom.price * 0.5)),
-      category: "custom",
+      emoji: isRole ? "👑" : "🏷️",
+      sellPrice: isRole ? 0 : Math.max(50, Math.floor(custom.price * 0.5)),
+      category: isRole ? "rol" : "custom",
+      canSell: !isRole,
     };
   }
   return {
@@ -471,6 +573,7 @@ export function getItemSellInfo(guildId: string, itemId: string): ItemSellInfo {
     emoji: "📦",
     sellPrice: 50,
     category: "general",
+    canSell: true,
   };
 }
 
@@ -480,7 +583,7 @@ export function getSellAutocomplete(
   query: string,
 ): { name: string; value: string }[] {
   const q = query.trim().toLowerCase();
-  const entries = Object.entries(inv).filter(([, count]) => count > 0);
+  const entries = Object.entries(inv).filter(([id, count]) => count > 0 && !isUnsellableItem(guildId, id));
   if (!entries.length) return [];
 
   let fishCount = 0;
@@ -492,6 +595,7 @@ export function getSellAutocomplete(
 
   for (const [id, count] of entries) {
     const info = getItemSellInfo(guildId, id);
+    if (!info.canSell || info.sellPrice <= 0) continue;
     const gain = info.sellPrice * count;
 
     if (info.category === "pesca") {
@@ -560,6 +664,16 @@ export interface SellResult {
 export function executeSell(eco: EcoRow, guildId: string, itemId: string, qtyOption: number): SellResult {
   const inv = invOf(eco);
 
+  if (isUnsellableItem(guildId, itemId)) {
+    return {
+      ok: false,
+      title: "Artículo intransferible",
+      detail: "Los roles exclusivos (como Millonario y Multimillonario) son intransferibles y no se pueden vender ni reembolsar.",
+      totalGain: 0,
+      wallet: eco.wallet,
+    };
+  }
+
   if (itemId === "todo_pesca" || itemId === "todo_caza" || itemId === "todo_capturas") {
     const isPesca = itemId === "todo_pesca" || itemId === "todo_capturas";
     const isCaza = itemId === "todo_caza" || itemId === "todo_capturas";
@@ -569,8 +683,9 @@ export function executeSell(eco: EcoRow, guildId: string, itemId: string, qtyOpt
     const soldBreakdown: string[] = [];
 
     for (const [id, count] of Object.entries(inv)) {
-      if (count <= 0) continue;
+      if (count <= 0 || isUnsellableItem(guildId, id)) continue;
       const info = getItemSellInfo(guildId, id);
+      if (!info.canSell || info.sellPrice <= 0) continue;
       const matchPesca = isPesca && info.category === "pesca";
       const matchCaza = isCaza && info.category === "caza";
 
@@ -631,8 +746,18 @@ export function executeSell(eco: EcoRow, guildId: string, itemId: string, qtyOpt
     };
   }
 
-  const qty = qtyOption === -1 ? owned : Math.min(owned, Math.max(1, qtyOption));
   const info = getItemSellInfo(guildId, itemId);
+  if (!info.canSell || info.sellPrice <= 0) {
+    return {
+      ok: false,
+      title: "Artículo no vendible",
+      detail: "Los roles exclusivos y artículos protegidos no se pueden vender a la tienda ni al bot.",
+      totalGain: 0,
+      wallet: eco.wallet,
+    };
+  }
+
+  const qty = qtyOption === -1 ? owned : Math.min(owned, Math.max(1, qtyOption));
   const totalGain = info.sellPrice * qty;
 
   for (let i = 0; i < qty; i++) {

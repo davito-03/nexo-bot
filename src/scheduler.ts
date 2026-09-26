@@ -18,6 +18,7 @@ import { tickBumpReminder } from "./modules/bump/engine.js";
 import { tickChatGames, tickVoiceDrops } from "./modules/events/chatGames.js";
 import { tickPolls } from "./modules/community/polls.js";
 import { tickWeeklyLottery } from "./commands/economy/loteria.js";
+import { tickServerStats } from "./modules/serverStats/engine.js";
 
 const lastBackup = new Map<string, number>();
 const running = new Set<string>();
@@ -29,6 +30,8 @@ async function guarded(key: string, task: () => Promise<void>): Promise<void> {
 }
 
 export function startScheduler(client: NexoClient): void {
+  // Inicialización inmediata de canales de estadísticas
+  void guarded("server-stats-init", () => tickServerStats(client)).catch((e) => logger.error("server stats init", e));
   setInterval(() => {
     void guarded("giveaways", () => tickGiveaways(client)).catch((e) => logger.error("giveaways tick", e));
     void guarded("tempbans", () => expireTempbans(client)).catch((e) => logger.error("tempban tick", e));
@@ -59,7 +62,12 @@ export function startScheduler(client: NexoClient): void {
     void guarded("voice-drops", () => tickVoiceDrops(client)).catch((e) => logger.error("voice drops tick", e));
     void guarded("unpins", () => checkScheduledUnpins(client)).catch((e) => logger.error("unpin tick", e));
     void guarded("lottery", () => tickWeeklyLottery(client)).catch((e) => logger.error("lottery tick", e));
+    void guarded("ghostping", () => tickDailyGhostping(client)).catch((e) => logger.error("ghostping tick", e));
   }, 60_000);
+
+  setInterval(() => {
+    void guarded("server-stats", () => tickServerStats(client)).catch((e) => logger.error("server stats tick", e));
+  }, 6 * 60_000);
 
   setInterval(() => {
     void guarded("backups", () => scheduledBackups(client)).catch((e) => logger.error("backup tick", e));
@@ -122,6 +130,39 @@ async function checkScheduledUnpins(client: NexoClient): Promise<void> {
     }
   } catch {
     /* ignore if table does not exist yet */
+  }
+}
+
+let lastGhostpingDate = "";
+
+export async function tickDailyGhostping(client: NexoClient): Promise<void> {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString("es-ES", {
+    timeZone: "Europe/Madrid",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const dateKey = now.toLocaleDateString("es-ES", { timeZone: "Europe/Madrid" });
+
+  if (timeStr === "16:00" && lastGhostpingDate !== dateKey) {
+    lastGhostpingDate = dateKey;
+    const channelId = "1545122878452928582";
+    const roleId = "1545124643176972449";
+    try {
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (channel && channel.isTextBased() && "send" in channel) {
+        const pingMsg = await (channel as any).send({ content: `<@&${roleId}>` }).catch(() => null);
+        if (pingMsg) {
+          setTimeout(() => {
+            pingMsg.delete().catch(() => {});
+          }, 800);
+          logger.info(`[Ghostping] Ejecutado con éxito para el rol ${roleId} en el canal ${channelId}`);
+        }
+      }
+    } catch (err) {
+      logger.error("[Ghostping] Error enviando ghostping:", err);
+    }
   }
 }
 

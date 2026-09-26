@@ -13,6 +13,7 @@ import { COLORS } from "../../constants.js";
 import { cancelAuction, createAuction, getAuction, listActiveAuctions, placeBid } from "../../modules/economy/auctions.js";
 import { getEco, invOf, n } from "../../modules/economy/engine.js";
 import { getItemDef } from "../../modules/economy/items.js";
+import { isUnsellableItem } from "../../modules/economy/shop.js";
 import { isStaff } from "../../utils/permissions.js";
 import { formatDuration, timestamp } from "../../utils/time.js";
 import type { Command } from "../../types/index.js";
@@ -48,6 +49,15 @@ const command: Command = {
         .setName("cancelar")
         .setDescription("Cancelar una subasta sin pujas (o moderación)")
         .addIntegerOption((o) => o.setName("id").setDescription("ID de la subasta a cancelar").setRequired(true)),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("estatal")
+        .setDescription("🏛️ (Staff) Lanzar una subasta oficial del Estado con quema total de fondos")
+        .addStringOption((o) => o.setName("item").setDescription("Objeto a subastar").setRequired(true).setAutocomplete(true))
+        .addIntegerOption((o) => o.setName("precio_salida").setDescription("Puja inicial (mínimo 100)").setRequired(true).setMinValue(100))
+        .addIntegerOption((o) => o.setName("horas").setDescription("Duración en horas (1 a 72)").setRequired(true).setMinValue(1).setMaxValue(72))
+        .addIntegerOption((o) => o.setName("cantidad").setDescription("Unidades del objeto (por defecto 1)").setMinValue(1)),
     ),
   async autocomplete(interaction: AutocompleteInteraction) {
     if (!interaction.inCachedGuild()) {
@@ -59,12 +69,28 @@ const command: Command = {
       await interaction.respond([]);
       return;
     }
-    const eco = getEco(interaction.guild.id, interaction.user.id);
-    const inv = invOf(eco);
+    const sub = interaction.options.getSubcommand(false);
     const q = focused.value.toLowerCase();
 
+    if (sub === "estatal") {
+      const { ITEMS_REGISTRY } = await import("../../modules/economy/items.js");
+      const options = Object.values(ITEMS_REGISTRY)
+        .filter((item) => !isUnsellableItem(interaction.guild.id, item.id))
+        .map((item) => ({
+          name: `${item.emoji} ${item.name} (${item.id})`.slice(0, 100),
+          value: item.id,
+        }))
+        .filter((opt) => !q || opt.name.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q))
+        .slice(0, 25);
+      await interaction.respond(options);
+      return;
+    }
+
+    const eco = getEco(interaction.guild.id, interaction.user.id);
+    const inv = invOf(eco);
+
     const options = Object.entries(inv)
-      .filter(([, count]) => count > 0)
+      .filter(([id, count]) => count > 0 && !isUnsellableItem(interaction.guild.id, id))
       .map(([id, count]) => {
         const def = getItemDef(id);
         const name = def ? `${def.emoji} ${def.name}` : id;
@@ -228,6 +254,51 @@ const command: Command = {
       }
 
       await interaction.reply({ embeds: [successEmbed("Subasta cancelada", `La subasta #${auctionId} ha sido cerrada y el lote devuelto a su dueño.`)] });
+      return;
+    }
+
+    if (sub === "estatal") {
+      const member = interaction.member && "roles" in interaction.member ? (interaction.member as GuildMember) : null;
+      if (!member || !isStaff(member)) {
+        await interaction.reply({ embeds: [errorEmbed("Acceso Denegado", "Solo el personal del Staff puede iniciar subastas estatales del gobierno.")], ephemeral: true });
+        return;
+      }
+
+      const itemId = interaction.options.getString("item", true);
+      const startingBid = interaction.options.getInteger("precio_salida", true);
+      const hours = interaction.options.getInteger("horas", true);
+      const qty = interaction.options.getInteger("cantidad") ?? 1;
+
+      const res = createAuction({
+        guildId: gid,
+        sellerId: "SYSTEM",
+        sellerTag: "🏛️ Hacienda & Bienes Incautados",
+        itemId,
+        quantity: qty,
+        startingBid,
+        durationHours: hours,
+        channelId: interaction.channelId,
+      });
+
+      if (!res.ok || !res.auction) {
+        await interaction.reply({ embeds: [errorEmbed("Error", res.error ?? "No se pudo iniciar la subasta estatal.")], ephemeral: true });
+        return;
+      }
+
+      const auc = res.auction;
+      const embed = baseEmbed(COLORS.gold)
+        .setTitle("🏛️ ¡SUBASTA PÚBLICA ESTATAL DE BIENES INCAUTADOS!")
+        .setDescription(
+          `La Administración Federal de Nexo ha puesto a subasta **${auc.quantity}× ${auc.item_name}**.\n\n` +
+            `🔥 **AVISO DE QUEMA MONETARIA:**\n` +
+            `El 100% de los fondos de la puja ganadora **serán destruidos de la economía** para combatir la inflación.\n\n` +
+            `• **ID de Subasta:** \`#${auc.id}\`\n` +
+            `• **Puja Inicial:** **${n(auc.starting_bid)}**\n` +
+            `• **Cierre:** ${timestamp(auc.ends_at, "R")}`,
+        )
+        .setFooter({ text: `Puja con: /subasta pujar id:${auc.id} cantidad:<valor>` });
+
+      await interaction.reply({ embeds: [embed] });
       return;
     }
   },

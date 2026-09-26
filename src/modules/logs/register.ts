@@ -16,7 +16,7 @@ import { archiveMessage, getArchivedMessage, getDb, markDeleted } from "../../da
 import { truncate } from "../../utils/format.js";
 import type { NexoClient } from "../../client.js";
 import { logEmbed, sendLog } from "./dispatch.js";
-import { getTicketByChannel } from "../tickets/manager.js";
+import { getTicketByChannel, recordTicketMessageDelete, recordTicketMessageEdit } from "../tickets/manager.js";
 
 
 function channelName(ch: GuildBasedChannel | null | undefined): string {
@@ -61,6 +61,7 @@ export function registerLogEvents(client: NexoClient): void {
 
       const ticket = getTicketByChannel(message.channelId);
       if (ticket) {
+        recordTicketMessageDelete(message.id);
         const ticketEmbed = logEmbed("🗑️ Mensaje eliminado en Ticket #" + ticket.id, COLORS.danger)
           .addFields(
             { name: "Ticket", value: `#${ticket.id} (${ticket.category})`, inline: true },
@@ -106,6 +107,7 @@ export function registerLogEvents(client: NexoClient): void {
 
       const ticket = getTicketByChannel(newMsg.channelId);
       if (ticket) {
+        recordTicketMessageEdit(newMsg.id, after);
         const ticketEmbed = logEmbed("✏️ Mensaje editado en Ticket #" + ticket.id, COLORS.warn)
           .addFields(
             { name: "Ticket", value: `#${ticket.id} (${ticket.category})`, inline: true },

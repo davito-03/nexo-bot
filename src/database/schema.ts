@@ -94,11 +94,15 @@ CREATE TABLE IF NOT EXISTS tickets (
 CREATE TABLE IF NOT EXISTS ticket_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id INTEGER NOT NULL,
+  message_id TEXT,
   author_id TEXT NOT NULL,
   author_tag TEXT,
   content TEXT,
+  original_content TEXT,
   attachments TEXT,
   created_at INTEGER NOT NULL,
+  edited_at INTEGER,
+  deleted_at INTEGER,
   is_bot INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (ticket_id) REFERENCES tickets(id)
 );
@@ -681,17 +685,6 @@ CREATE TABLE IF NOT EXISTS counting_user_stats (
 );
 CREATE INDEX IF NOT EXISTS idx_counting_user_stats_correct ON counting_user_stats (guild_id, correct_counts DESC);
 
-CREATE TABLE IF NOT EXISTS special_tax_surcharges (
-  guild_id TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  extra_rate REAL NOT NULL DEFAULT 0.30,
-  days_charged INTEGER NOT NULL DEFAULT 0,
-  max_days INTEGER NOT NULL DEFAULT 7,
-  last_charged_day TEXT,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (guild_id, user_id)
-);
-
 CREATE TABLE IF NOT EXISTS casino_jackpot (
   guild_id TEXT PRIMARY KEY,
   amount INTEGER NOT NULL DEFAULT 50000,
@@ -744,6 +737,40 @@ CREATE TABLE IF NOT EXISTS user_pets (
   is_active INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_user_pets_user ON user_pets (guild_id, user_id);
+
+CREATE TABLE IF NOT EXISTS user_pokedex (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  species_id TEXT NOT NULL,
+  caught_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, user_id, species_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_pokedex_user ON user_pokedex (guild_id, user_id);
+
+CREATE TABLE IF NOT EXISTS user_gym_badges (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  badge_id TEXT NOT NULL,
+  beaten_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, user_id, badge_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_gym_badges ON user_gym_badges (guild_id, user_id);
+
+CREATE TABLE IF NOT EXISTS user_pokemon_daycare (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  pet_id INTEGER NOT NULL,
+  deposited_at INTEGER NOT NULL,
+  cost_per_hour INTEGER NOT NULL DEFAULT 100,
+  PRIMARY KEY (guild_id, user_id, pet_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_pokemon_salary (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  last_claimed_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, user_id)
+);
 
 
 CREATE TABLE IF NOT EXISTS voice_rewards_claimed (
@@ -930,6 +957,8 @@ CREATE TABLE IF NOT EXISTS heist_target_security (
   security_level INTEGER NOT NULL DEFAULT 1,
   consecutive_wins INTEGER NOT NULL DEFAULT 0,
   last_heist_at INTEGER NOT NULL DEFAULT 0,
+  max_level_reached INTEGER NOT NULL DEFAULT 1,
+  level_10_reached INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (guild_id, target_id)
 );
@@ -945,5 +974,186 @@ CREATE TABLE IF NOT EXISTS item_daily_purchases (
   PRIMARY KEY (guild_id, user_id, item_id, date_key)
 );
 CREATE INDEX IF NOT EXISTS idx_item_daily_purchases ON item_daily_purchases (guild_id, user_id, item_id, date_key);
+
+CREATE TABLE IF NOT EXISTS gangs (
+  id TEXT NOT NULL PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  leader_id TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  balance INTEGER NOT NULL DEFAULT 0,
+  total_loot_earned INTEGER NOT NULL DEFAULT 0,
+  level INTEGER NOT NULL DEFAULT 1,
+  last_tribute_at INTEGER NOT NULL DEFAULT 0,
+  role_id TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gangs_guild ON gangs (guild_id, total_loot_earned DESC);
+
+CREATE TABLE IF NOT EXISTS gang_members (
+  guild_id TEXT NOT NULL,
+  gang_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  joined_at INTEGER NOT NULL,
+  contribution INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_gang_members_gang ON gang_members (guild_id, gang_id);
+
+CREATE TABLE IF NOT EXISTS gang_upgrades (
+  guild_id TEXT NOT NULL,
+  gang_id TEXT NOT NULL,
+  upgrade_id TEXT NOT NULL,
+  level INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (guild_id, gang_id, upgrade_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_heist_relics (
+  id TEXT NOT NULL PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  relic_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  obtained_at INTEGER NOT NULL,
+  is_displayed INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_user_relics_user ON user_heist_relics (guild_id, user_id, obtained_at DESC);
+
+CREATE TABLE IF NOT EXISTS police_officers (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  rank TEXT NOT NULL DEFAULT 'Cadete',
+  joined_at INTEGER NOT NULL,
+  intercepts_won INTEGER NOT NULL DEFAULT 0,
+  total_fines_collected INTEGER NOT NULL DEFAULT 0,
+  cooldown_until INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_police_officers ON police_officers (guild_id, user_id);
+
+CREATE TABLE IF NOT EXISTS gang_territories (
+  guild_id TEXT NOT NULL,
+  district_id TEXT NOT NULL,
+  controlling_gang_id TEXT,
+  influence_points INTEGER NOT NULL DEFAULT 0,
+  last_tribute_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, district_id)
+);
+CREATE INDEX IF NOT EXISTS idx_gang_territories ON gang_territories (guild_id, district_id);
+
+CREATE TABLE IF NOT EXISTS gang_territory_influence (
+  guild_id TEXT NOT NULL,
+  district_id TEXT NOT NULL,
+  gang_id TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, district_id, gang_id)
+);
+
+CREATE TABLE IF NOT EXISTS gang_contracts (
+  guild_id TEXT NOT NULL,
+  gang_id TEXT NOT NULL,
+  contract_id TEXT NOT NULL,
+  progress INTEGER NOT NULL DEFAULT 0,
+  target_value INTEGER NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0,
+  reward_coins INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, gang_id, contract_id)
+);
+
+CREATE TABLE IF NOT EXISTS gang_investments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  gang_id TEXT NOT NULL,
+  investor_id TEXT NOT NULL,
+  amount_invested INTEGER NOT NULL,
+  accumulated_dividends INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  last_collected_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_gang_inv_user ON gang_investments (guild_id, investor_id);
+CREATE INDEX IF NOT EXISTS idx_gang_inv_gang ON gang_investments (guild_id, gang_id);
+
+CREATE TABLE IF NOT EXISTS user_reputation (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  last_given_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS reputation_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  from_user_id TEXT NOT NULL,
+  to_user_id TEXT NOT NULL,
+  reason TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rep_to_user ON reputation_logs (guild_id, to_user_id);
+
+CREATE TABLE IF NOT EXISTS ticket_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  ticket_id INTEGER NOT NULL,
+  opener_id TEXT NOT NULL,
+  staff_id TEXT,
+  rating INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_profile_customization (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  theme TEXT NOT NULL DEFAULT 'cyberpunk',
+  bio TEXT,
+  PRIMARY KEY (guild_id, user_id)
+);
+
+
+
+CREATE TABLE IF NOT EXISTS store_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT UNIQUE,
+  user_id TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  plan_name TEXT,
+  price TEXT,
+  payment_method TEXT,
+  claimed_by TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  created_at INTEGER NOT NULL,
+  closed_at INTEGER,
+  close_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_store_orders_user ON store_orders (guild_id, user_id, status);
+
+CREATE TABLE IF NOT EXISTS store_order_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  author_id TEXT NOT NULL,
+  author_tag TEXT,
+  content TEXT,
+  attachments TEXT,
+  created_at INTEGER NOT NULL,
+  is_bot INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (order_id) REFERENCES store_orders(id)
+);
+CREATE INDEX IF NOT EXISTS idx_store_order_msgs ON store_order_messages (order_id, created_at);
+CREATE TABLE IF NOT EXISTS server_stats_channels (
+  guild_id TEXT PRIMARY KEY,
+  category_id TEXT,
+  clock_channel_id TEXT,
+  members_channel_id TEXT,
+  online_channel_id TEXT,
+  boost_channel_id TEXT,
+  last_updated INTEGER NOT NULL DEFAULT 0
+);
 `;
 

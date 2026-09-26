@@ -25,7 +25,7 @@ import {
   type EcoTopKind,
   workPay,
 } from "../../modules/economy/engine.js";
-import { getItemDef, RARITY_INFO, type ItemDef } from "../../modules/economy/items.js";
+import { getItemDef, RARITY_INFO, isTrainerItem, type ItemDef } from "../../modules/economy/items.js";
 
 import {
   collectLoan,
@@ -87,7 +87,7 @@ async function autocomplete(interaction: AutocompleteInteraction) {
     const opts = rods
       .filter((r) => r.has && (!q || r.name.toLowerCase().includes(q)))
       .map((r) => ({ name: r.name, value: r.id }));
-    await interaction.respond(opts);
+    await interaction.respond(opts).catch(() => {});
     return;
   }
 
@@ -101,7 +101,7 @@ async function autocomplete(interaction: AutocompleteInteraction) {
     const opts = baits
       .filter((b) => b.has && (!q || b.name.toLowerCase().includes(q)))
       .map((b) => ({ name: b.name.slice(0, 100), value: b.id }));
-    await interaction.respond(opts);
+    await interaction.respond(opts).catch(() => {});
     return;
   }
 
@@ -114,7 +114,7 @@ async function autocomplete(interaction: AutocompleteInteraction) {
     const opts = weapons
       .filter((w) => w.has && (!q || w.name.toLowerCase().includes(q)))
       .map((w) => ({ name: w.name.slice(0, 100), value: w.id }));
-    await interaction.respond(opts);
+    await interaction.respond(opts).catch(() => {});
     return;
   }
 
@@ -127,20 +127,20 @@ async function autocomplete(interaction: AutocompleteInteraction) {
     const opts = traps
       .filter((t) => t.has && (!q || t.name.toLowerCase().includes(q)))
       .map((t) => ({ name: t.name.slice(0, 100), value: t.id }));
-    await interaction.respond(opts);
+    await interaction.respond(opts).catch(() => {});
     return;
   }
 
   if (focused.name !== "item") {
-    await interaction.respond([]);
+    await interaction.respond([]).catch(() => {});
     return;
   }
   const subCmd = interaction.options.getSubcommand(false);
   if (interaction.commandName === "eco-vender" || subCmd === "vender") {
-    await interaction.respond(getSellAutocomplete(interaction.guild.id, inv, focused.value));
+    await interaction.respond(getSellAutocomplete(interaction.guild.id, inv, focused.value)).catch(() => {});
     return;
   }
-  await interaction.respond(autocompleteShop(interaction.guild.id, focused.value));
+  await interaction.respond(autocompleteShop(interaction.guild.id, focused.value)).catch(() => {});
 }
 
 
@@ -820,6 +820,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
       }
 
       const tools: string[] = [];
+      const trainer: string[] = [];
       const fish: string[] = [];
       const hunt: string[] = [];
       const collectibles: string[] = [];
@@ -834,7 +835,17 @@ async function execute(interaction: ChatInputCommandInteraction) {
         const rarity = def ? ` · *${RARITY_INFO[def.rarity]?.label ?? def.rarity}*` : "";
         const line = `• ${emoji} **${name}** ×${q}${rarity}`;
 
-        if (!def) {
+        if (
+          isTrainerItem(id) ||
+          def?.category === "captura" ||
+          id.startsWith("piedra_") ||
+          id.startsWith("baya_") ||
+          id.startsWith("huevo_") ||
+          id === "pocion_maxima" ||
+          id === "caramelo_raro"
+        ) {
+          trainer.push(line);
+        } else if (!def) {
           tools.push(line);
         } else if (def.category === "herramienta" || def.category === "consumible") {
           tools.push(line);
@@ -861,7 +872,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
       const embed = ecoEmbed(`Inventario de ${targetUser.username}`)
         .setDescription(`📦 **${totalItems.toLocaleString("es-ES")}** objetos en total (${entries.length} tipos distintos)`)
         .setThumbnail(targetUser.displayAvatarURL({ size: 128 }))
-        .setFooter({ text: "Vende con /eco vender · Vitrina con /galeria · Subastas con /subasta" });
+        .setFooter({ text: "Vende con /eco vender · Mochila Pokémon con /mochila · Vitrina con /galeria" });
 
       const addSafeFields = (title: string, lines: string[]) => {
         if (!lines.length) return;
@@ -887,6 +898,7 @@ async function execute(interaction: ChatInputCommandInteraction) {
         }
       };
 
+      addSafeFields("🔴 Mochila de Entrenador Pokémon", trainer);
       addSafeFields("🛠️ Herramientas y Consumibles", tools);
       addSafeFields("🎣 Pesca y Océano", fish);
       addSafeFields("🏹 Caza y Bosque", hunt);

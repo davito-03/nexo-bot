@@ -16,7 +16,7 @@ import { getEco, saveEco, addWallet, deductFunds, jailCheck, n, rng, invOf, take
 import { checkUserAchievements } from "./achievements.js";
 import { logger } from "../../logger.js";
 import { renderHeistHud, type CanvasCrewMember } from "./heistCanvas.js";
-import { getHeistQteForTarget, DAVITO_QTE_GAUNTLET, type HeistQteOption } from "./heistQTE.js";
+import { getHeistQteForTarget, DAVITO_QTE_GAUNTLET, HEIST_QTE_INCIDENTS, type HeistQteOption } from "./heistQTE.js";
 import {
   HEIST_ROLES,
   HEIST_TARGETS,
@@ -32,10 +32,25 @@ import {
   setUserActiveRole,
   awardHeistXp,
   getRoleTitle,
+  getMaxWinRateForSecurity,
   type HeistRoleDef,
   type HeistTargetDef,
   type BankSecurityInfo,
 } from "./heistEngine.js";
+import { getActiveEventsForTarget, getDailyHeistEvents } from "./heistEvents.js";
+import { HEIST_MINIGAMES, renderMinigameCanvas, type HeistMinigameDef } from "./heistMinigames.js";
+import { rollRelicDrop, awardRelicToUser, getUserRelics, HEIST_RELICS } from "./heistRelics.js";
+import { isUserPolice, desertPoliceForce, recordPoliceIntercept } from "./police.js";
+import {
+  getUserGang,
+  getGangUpgrades,
+  recordGangHeistLoot,
+  recordHeistTerritoryInfluence,
+  incrementGangContractProgress,
+  METROPOLITAN_DISTRICTS,
+  type GangRecord,
+} from "./gangs.js";
+import { syncHeistPinnedGuide } from "./heistGuideEmbed.js";
 
 export const HEIST_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutos entre golpes al mismo objetivo
 const lastHeistMap = new Map<string, number>();
@@ -48,22 +63,6 @@ interface ActiveLobby {
 
 const activeHeistLobbies = new Map<string, ActiveLobby>();
 
-export const HEIST_MEDIA: Record<string, string> = {
-  banco: "https://media.giphy.com/media/l0HlOBZREZVEIfKVO/giphy.gif",
-  casino: "https://media.giphy.com/media/26uf2JHNV0Tq3ugkE/giphy.gif",
-  mansion: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif",
-  empresa: "https://media.giphy.com/media/26n6WywJyh39n1pBu/giphy.gif",
-  tren_blindado: "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif",
-  estacion_espacial: "https://media.giphy.com/media/l41JGlWa1xYFU55mg/giphy.gif",
-  submarino: "https://media.giphy.com/media/3o7TKtnuHOHHUjR38Y/giphy.gif",
-  museo: "https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif",
-  davito: "https://media.giphy.com/media/l41JGlWa1xYFU55mg/giphy.gif",
-  qte: "https://media.giphy.com/media/13d2jHlSlxklVe/giphy.gif",
-  phase3: "https://media.giphy.com/media/RYKFEEjtYpxL2/giphy.gif",
-  victory: "https://media.giphy.com/media/3o6gDWzmAzrpi5DQU8/giphy.gif",
-  escape: "https://media.giphy.com/media/xT5LMGfQrJPpHXdsEQ/giphy.gif",
-  failure: "https://media.giphy.com/media/3o7TKwmnDgQb5jemjK/giphy.gif",
-};
 
 /**
  * Permite desatascar o reiniciar un lobby huérfano de asalto.
@@ -140,16 +139,22 @@ export async function startBankHeist(
     }
   }
 
-  // Comprobar cooldown específico de este objetivo
+  // Comprobar cooldown específico de este objetivo (con bonificación de antena de la banda)
   const targetSec = getTargetSecurity(gid, targetDef.id);
   const now = Date.now();
-  if (targetSec.lastHeistAt > 0 && now - targetSec.lastHeistAt < HEIST_COOLDOWN_MS) {
-    const readyAt = Math.floor((targetSec.lastHeistAt + HEIST_COOLDOWN_MS) / 1000);
+  const leaderGangInfo = getUserGang(gid, leader.id);
+  const leaderUps = leaderGangInfo ? getGangUpgrades(gid, leaderGangInfo.gang.id) : null;
+  const antennaReductionMs = Math.min(15 * 60 * 1000, (leaderUps?.antena || 0) * 3 * 60 * 1000);
+  const effectiveCooldownMs = Math.max(15 * 60 * 1000, HEIST_COOLDOWN_MS - antennaReductionMs);
+
+  if (targetSec.lastHeistAt > 0 && now - targetSec.lastHeistAt < effectiveCooldownMs) {
+    const readyAt = Math.floor((targetSec.lastHeistAt + effectiveCooldownMs) / 1000);
+    const antennaNotice = antennaReductionMs > 0 ? `\n📡 *Tu banda reduce la alerta en ${Math.round(antennaReductionMs / 60000)} min gracias a la Antena de Frecuencias.*` : "";
     await interaction.reply({
       embeds: [
         errorEmbed(
           `🚨 Alerta de Seguridad: ${targetDef.name}`,
-          `Las defensas de **${targetDef.name}** están en alerta roja por un golpe reciente.\nLos guardias y escáneres no bajarán la guardia hasta <t:${readyAt}:R> (<t:${readyAt}:T>).\n\n💡 *Puedes consultar los temporizadores de todos los asaltos con \`/asalto info\`.*`,
+          `Las defensas de **${targetDef.name}** están en alerta roja por un golpe reciente.\nLos guardias y escáneres no bajarán la guardia hasta <t:${readyAt}:R> (<t:${readyAt}:T>).${antennaNotice}\n\n💡 *Puedes consultar los temporizadores de todos los asaltos con \`/asalto info\`.*`,
         ),
       ],
       ephemeral: true,
@@ -165,6 +170,59 @@ export async function startBankHeist(
       ephemeral: true,
     });
     return;
+  }
+
+  // Comprobar si el líder es policía activo
+  if (isUserPolice(gid, leader.id)) {
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("heist_police_desert_leader")
+        .setLabel("🚨 Desertar de la Policía y Comenzar Asalto")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("heist_police_cancel_leader")
+        .setLabel("❌ Cancelar y Seguir en la Policía")
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    const warnMsg = await interaction.reply({
+      embeds: [
+        errorEmbed(
+          "⚠️ Oficial del Cuerpo de Policía",
+          "Eres un oficial en activo del Cuerpo de Policía de Nexo.\n\n" +
+            "Tienes terminantemente prohibido organizar o participar en asaltos armados.\n" +
+            "Si decides desertar para liderar este golpe, **perderás tu placa y se te impondrá un COOLDOWN DE 3 DÍAS** antes de poder volver a ingresar en la policía.",
+        ),
+      ],
+      components: [row],
+      ephemeral: true,
+      fetchReply: true,
+    });
+
+    try {
+      const btn = await warnMsg.awaitMessageComponent({
+        componentType: ComponentType.Button,
+        time: 30_000,
+        filter: (i) => i.user.id === leader.id,
+      });
+
+      if (btn.customId === "heist_police_cancel_leader") {
+        await btn.update({
+          embeds: [infoEmbed("Operación Cancelada", "Has decidido mantener tu juramento y permanecer en el Cuerpo de Policía.")],
+          components: [],
+        });
+        return;
+      }
+
+      desertPoliceForce(gid, leader.id);
+      await btn.update({
+        embeds: [infoEmbed("🚨 Deserción Registrada", "Has renunciado al Cuerpo de Policía (cooldown: 3 días). Organizando el golpe...")],
+        components: [],
+      });
+    } catch {
+      await interaction.editReply({ components: [] });
+      return;
+    }
   }
 
   activeHeistLobbies.set(gid, { startedAt: Date.now(), leaderId: leader.id, targetId: targetDef.id });
@@ -192,8 +250,8 @@ export async function startBankHeist(
     const crewSize = members.length;
     const isDavito = targetDef.id === "davito";
 
-    // Base por tamaño de banda: 22% + 4% por cada cómplice adicional
-    let baseWinRate = 22 + (crewSize - 1) * 4;
+    // Base por tamaño de banda rebalanceada: 24% + 3.5% por cada cómplice adicional
+    let baseWinRate = 24 + (crewSize - 1) * 3.5;
 
     // Modificador de seguridad del objetivo
     const securityMod = targetSecInfo.tier.difficultyMod;
@@ -211,51 +269,280 @@ export async function startBankHeist(
 
     const hackerLvl = roleMap.get("hacker");
     if (hackerLvl !== undefined) {
-      roleProbBonus += 3 + hackerLvl * 1.0;
+      roleProbBonus += 3 + hackerLvl * 0.6;
     }
     const shooterLvl = roleMap.get("tirador");
     if (shooterLvl !== undefined) {
-      roleProbBonus += 4 + shooterLvl * 1.0;
+      roleProbBonus += 3 + shooterLvl * 0.6;
     }
     const infiltratorLvl = roleMap.get("infiltrador");
     if (infiltratorLvl !== undefined) {
-      roleProbBonus += 3 + infiltratorLvl * 1.0;
+      roleProbBonus += 3 + infiltratorLvl * 0.6;
     }
     const demolitionsLvl = roleMap.get("demoliciones");
     if (demolitionsLvl !== undefined) {
-      lootBonusPct += 15 + demolitionsLvl * 2.5;
+      lootBonusPct += 12 + demolitionsLvl * 1.8;
+    }
+    const conductorLvl = roleMap.get("conductor");
+    if (conductorLvl !== undefined) {
+      roleProbBonus += 3 + conductorLvl * 0.6;
     }
     const medicoLvl = roleMap.get("medico");
     if (medicoLvl !== undefined) {
-      roleProbBonus += 4 + medicoLvl * 1.0;
+      roleProbBonus += 3 + medicoLvl * 0.6;
     }
     const negociadorLvl = roleMap.get("negociador");
     if (negociadorLvl !== undefined) {
-      roleProbBonus += 4 + negociadorLvl * 1.0;
+      roleProbBonus += 3 + negociadorLvl * 0.6;
     }
 
-    // Pequeño bono táctico de apoyo por miembros adicionales del mismo rol (+1% por extra, máx +3%)
+    // Bono táctico de apoyo por miembros adicionales del mismo rol (máx +4%)
     const extraMembers = members.length - roleMap.size;
     if (extraMembers > 0) {
-      roleProbBonus += Math.min(3, extraMembers * 1);
+      roleProbBonus += Math.min(4, extraMembers * 1.0);
     }
 
-    // Sinergia de roles
-    const distinctRoles = new Set(members.map((m) => m.roleId));
-    let synergyName = "Sin sinergia especial";
-    if (distinctRoles.size >= 7) {
-      synergyName = "👑 Sindicato Total (+14% éxito, +30% botín)";
-      roleProbBonus += 14;
-      lootBonusPct += 30;
-    } else if (distinctRoles.size >= 5) {
-      synergyName = "🌟 Sinergia Perfecta (+10% éxito, +20% botín)";
-      roleProbBonus += 10;
-      lootBonusPct += 20;
-    } else if (distinctRoles.size >= 3) {
-      synergyName = "✨ Sinergia Táctica (+5% éxito, +10% botín)";
-      roleProbBonus += 5;
-      lootBonusPct += 10;
+    // ── Modificadores de Eventos Diarios (Mutadores) ──
+    const dailyEvents = getActiveEventsForTarget(targetDef.id, gid);
+    if (!isDavito) {
+      baseWinRate += dailyEvents.winRateMod;
     }
+    lootBonusPct += Math.round(dailyEvents.lootMod * 100);
+
+    for (const [rRole, rBonus] of Object.entries(dailyEvents.roleBonuses)) {
+      if (roleMap.has(rRole)) {
+        roleProbBonus += rBonus;
+      }
+    }
+
+    // ── Mejoras de Guarida de la Banda ──
+    const leaderGangInfo = getUserGang(gid, leader.id);
+    let gangUpgrades: Record<string, number> = { taller: 0, clinica: 0, antena: 0, abogados: 0, polvorin: 0 };
+    if (leaderGangInfo) {
+      gangUpgrades = getGangUpgrades(gid, leaderGangInfo.gang.id);
+      if (gangUpgrades.polvorin > 0) {
+        lootBonusPct += gangUpgrades.polvorin * 3;
+      }
+    }
+
+    // ── Sinergias Temáticas de Roles (Dúos, Tríos y Sindicatos) ──
+    const distinctRoles = new Set(members.map((m) => m.roleId));
+    const hasHacker = distinctRoles.has("hacker");
+    const hasShooter = distinctRoles.has("tirador");
+    const hasInfiltrator = distinctRoles.has("infiltrador");
+    const hasDemo = distinctRoles.has("demoliciones");
+    const hasDriver = distinctRoles.has("conductor");
+    const hasMedic = distinctRoles.has("medico");
+    const hasNegotiator = distinctRoles.has("negociador");
+
+    const activeSynergies: { name: string; winBonus: number; lootBonus: number; desc: string }[] = [];
+
+    // ── Bonos Pasivos por Reliquias Poseídas del Objetivo ──
+    const targetRelicIds = new Set<string>();
+    for (const m of members) {
+      const uRelics = getUserRelics(gid, m.userId);
+      for (const ur of uRelics) {
+        const rDef = HEIST_RELICS[ur.relicId];
+        if (rDef && rDef.targetId === targetDef.id) {
+          targetRelicIds.add(ur.relicId);
+        }
+      }
+    }
+    if (targetRelicIds.size >= 3) {
+      roleProbBonus += 2;
+      lootBonusPct += 5;
+      activeSynergies.push({
+        name: "👑 Dominio Total de Reliquias",
+        winBonus: 2.0,
+        lootBonus: 5,
+        desc: "La banda posee las 3 reliquias del objetivo (+2% éxito, +5% botín)",
+      });
+    } else if (targetRelicIds.size >= 1) {
+      lootBonusPct += 3;
+      activeSynergies.push({
+        name: `💎 Reliquias en Posesión (${targetRelicIds.size}/3)`,
+        winBonus: 0,
+        lootBonus: 3,
+        desc: "Conocimiento táctico del objetivo gracias a reliquias históricas (+3% botín)",
+      });
+    }
+
+    // Dúos tácticos
+    if (hasHacker && hasInfiltrator) {
+      activeSynergies.push({
+        name: "🥷💻 Infiltración Cibernética",
+        winBonus: 2.5,
+        lootBonus: 8,
+        desc: "Cámaras hackeadas y rutas sigilosas sincronizadas (+2.5% éxito, +8% botín)",
+      });
+    }
+    if (hasDemo && hasShooter) {
+      activeSynergies.push({
+        name: "💥🎯 Fuerza de Choque Pesada",
+        winBonus: 2.5,
+        lootBonus: 10,
+        desc: "Fuego pesado de cobertura mientras se abren brechas (+2.5% éxito, +10% botín)",
+      });
+    }
+    if (hasDriver && hasMedic) {
+      activeSynergies.push({
+        name: "🚑🏎️ Evacuación & Soporte Vital",
+        winBonus: 2.0,
+        lootBonus: 0,
+        desc: "Extracción médica rápida ante heridas graves (+2% éxito, -25% calabozo)",
+      });
+    }
+    if (hasNegotiator && hasHacker) {
+      activeSynergies.push({
+        name: "🧠🎭 Guerra Psicológica & Falsificación",
+        winBonus: 2.5,
+        lootBonus: 5,
+        desc: "Señales falsas al 911 y desvío psicológico de la central (+2.5% éxito, -15% multas)",
+      });
+    }
+    if (hasDriver && hasInfiltrator) {
+      activeSynergies.push({
+        name: "💨🏎️ Extracción Fantasma",
+        winBonus: 2.0,
+        lootBonus: 0,
+        desc: "Rutas de evasión sin huellas perimétricas (+2% éxito, +5% huida)",
+      });
+    }
+    if (hasNegotiator && hasShooter) {
+      activeSynergies.push({
+        name: "⚖️🎯 Intimidación Táctica",
+        winBonus: 2.5,
+        lootBonus: 0,
+        desc: "El negociador acorrala psicológicamente con tiradores apuntando (+2.5% éxito)",
+      });
+    }
+    if (hasDemo && hasDriver) {
+      activeSynergies.push({
+        name: "💣🏎️ Golpe y Fuga Relámpago",
+        winBonus: 1.5,
+        lootBonus: 12,
+        desc: "Voladura de caja y carga inmediata al furgón (+1.5% éxito, +12% botín)",
+      });
+    }
+
+    // Tríos tácticos
+    if (hasHacker && hasDemo && hasDriver) {
+      activeSynergies.push({
+        name: "⚡🏦 Tríada Clásica de Bóveda",
+        winBonus: 3.5,
+        lootBonus: 15,
+        desc: "Hackeo, voladura y huida de precisión milimétrica (+3.5% éxito, +15% botín)",
+      });
+    }
+    if (hasShooter && hasInfiltrator && hasMedic) {
+      activeSynergies.push({
+        name: "🎖️🛡️ Escuadrón Táctico Operativo",
+        winBonus: 3.5,
+        lootBonus: 0,
+        desc: "Operaciones tácticas de choque y soporte militar (+3.5% éxito, -20% calabozo)",
+      });
+    }
+    if (hasNegotiator && hasHacker && hasInfiltrator) {
+      activeSynergies.push({
+        name: "🕵️🌐 Mente Maestra & Sombras",
+        winBonus: 3.5,
+        lootBonus: 8,
+        desc: "Control absoluto del entorno antes de ser detectados (+3.5% éxito, -20% multas)",
+      });
+    }
+
+    // Sindicatos según diversidad de la banda
+    if (distinctRoles.size >= 7) {
+      activeSynergies.push({
+        name: "👑 Sindicato Absoluto",
+        winBonus: 6.0,
+        lootBonus: 20,
+        desc: "Los 7 roles criminales presentes en perfecta armonía (+6% éxito, +20% botín)",
+      });
+    } else if (distinctRoles.size >= 5) {
+      activeSynergies.push({
+        name: "🌟 Sindicato Mayor",
+        winBonus: 3.5,
+        lootBonus: 12,
+        desc: "5 o más roles distintos coordinados (+3.5% éxito, +12% botín)",
+      });
+    } else if (distinctRoles.size >= 3 && activeSynergies.length === 0) {
+      activeSynergies.push({
+        name: "✨ Coordinación Táctica Básica",
+        winBonus: 2.0,
+        lootBonus: 5,
+        desc: "3 roles distintos presentes (+2% éxito, +5% botín)",
+      });
+    }
+
+    // ── Sinergias de Hermandad Criminal & Control Territorial ──
+    const gangAffiliationCounts = new Map<string, { gang: GangRecord; count: number }>();
+    for (const m of members) {
+      const gInfo = getUserGang(gid, m.userId);
+      if (gInfo) {
+        const prev = gangAffiliationCounts.get(gInfo.gang.id);
+        if (prev) prev.count++;
+        else gangAffiliationCounts.set(gInfo.gang.id, { gang: gInfo.gang, count: 1 });
+      }
+    }
+
+    let dominantGang: { gang: GangRecord; count: number } | null = null;
+    for (const entry of gangAffiliationCounts.values()) {
+      if (!dominantGang || entry.count > dominantGang.count) {
+        dominantGang = entry;
+      }
+    }
+
+    if (dominantGang && dominantGang.count >= 2) {
+      if (dominantGang.count >= 4) {
+        activeSynergies.push({
+          name: `🏴‍☠️ Sindicato Colectivo [${dominantGang.gang.tag}]`,
+          winBonus: 3.0,
+          lootBonus: 8,
+          desc: `4+ miembros de la banda [${dominantGang.gang.tag}] coordinados (+3% éxito, +8% botín)`,
+        });
+      } else {
+        activeSynergies.push({
+          name: `🤝 Hermandad Criminal [${dominantGang.gang.tag}]`,
+          winBonus: 1.5,
+          lootBonus: 4,
+          desc: `Miembros de la banda [${dominantGang.gang.tag}] colaborando (+1.5% éxito, +4% botín)`,
+        });
+      }
+    }
+
+    const targetDistrict = Object.values(METROPOLITAN_DISTRICTS).find((d) => d.associatedTargets.includes(targetDef.id));
+    if (targetDistrict) {
+      const db = getDb();
+      const terr = db.prepare("SELECT controlling_gang_id FROM gang_territories WHERE guild_id = ? AND district_id = ?").get(gid, targetDistrict.id) as { controlling_gang_id: string | null } | undefined;
+      if (terr?.controlling_gang_id && gangAffiliationCounts.has(terr.controlling_gang_id)) {
+        const controllingGangObj = gangAffiliationCounts.get(terr.controlling_gang_id)!.gang;
+        activeSynergies.push({
+          name: `🗺️ Dominio Territorial: ${targetDistrict.name}`,
+          winBonus: 0,
+          lootBonus: 6,
+          desc: `[${controllingGangObj.tag}] domina este distrito (+6% botín adicional)`,
+        });
+      }
+    }
+
+    let synergyWinBonus = 0;
+    let synergyLootBonus = 0;
+    for (const syn of activeSynergies) {
+      synergyWinBonus += syn.winBonus;
+      synergyLootBonus += syn.lootBonus;
+    }
+    // Cap saludable de sinergias: máx +12% de éxito y +35% de botín
+    synergyWinBonus = Math.min(12, synergyWinBonus);
+    synergyLootBonus = Math.min(35, synergyLootBonus);
+
+    roleProbBonus += synergyWinBonus;
+    lootBonusPct += synergyLootBonus;
+
+    const synergyName =
+      activeSynergies.length > 0
+        ? activeSynergies.map((s) => s.name).join(" + ")
+        : "Sin sinergia especial";
 
     // Equipamiento táctico colectivo detectado en inventarios
     const gearDetected: string[] = [];
@@ -270,22 +557,22 @@ export async function startBankHeist(
       const inv = invOf(eco);
       if (inv.inhibidor_emp && !hasEmp) {
         hasEmp = true;
-        gearDetected.push("📟 Inhibidor EMP (+6% éxito)");
-        roleProbBonus += 6;
+        gearDetected.push("📟 Inhibidor EMP (+5% éxito)");
+        roleProbBonus += 5;
       }
       if (inv.c4 && !hasC4) {
         hasC4 = true;
-        gearDetected.push("💣 C4 (+20% botín)");
-        lootBonusPct += 20;
+        gearDetected.push("💣 C4 (+15% botín)");
+        lootBonusPct += 15;
       }
       if (inv.taladro_termico && !hasDrill) {
         hasDrill = true;
-        gearDetected.push("🔥 Taladro Térmico (+30% botín)");
-        lootBonusPct += 30;
+        gearDetected.push("🔥 Taladro Térmico (+25% botín)");
+        lootBonusPct += 25;
       }
       if (inv.furgon_blindado && !hasVan) {
         hasVan = true;
-        gearDetected.push("🚗 Furgón Blindado (60% huida ante fallo)");
+        gearDetected.push("🚗 Furgón Blindado (45% huida ante fallo)");
       }
       if (inv.adrenalina && !hasAdrenaline) {
         hasAdrenaline = true;
@@ -299,18 +586,23 @@ export async function startBankHeist(
     let finalWinRate: number;
     let lootMin: number;
     let lootMax: number;
+    let maxWinRate: number;
 
     if (isDavito) {
-      // Dificultad casi imposible: estrictamente MENOR al 0.77% incluso con el mejor equipamiento
-      const crewBonus = Math.min(0.20, (crewSize - 1) * 0.015);
-      const synBonus = distinctRoles.size >= 7 ? 0.12 : distinctRoles.size >= 5 ? 0.10 : distinctRoles.size >= 3 ? 0.05 : 0;
-      const gearBonus = (hasEmp ? 0.04 : 0) + (hasC4 ? 0.04 : 0) + (hasDrill ? 0.04 : 0);
+      // Dificultad casi imposible: estrictamente MENOR al 0.77% incluso con el mejor equipamiento (hasta 24 miembros)
+      const crewBonus = Math.min(0.20, (crewSize - 1) * 0.008);
+      const synBonus = distinctRoles.size >= 7 ? 0.10 : distinctRoles.size >= 5 ? 0.07 : distinctRoles.size >= 3 ? 0.04 : 0;
+      const gearBonus = (hasEmp ? 0.03 : 0) + (hasC4 ? 0.03 : 0) + (hasDrill ? 0.03 : 0);
       finalWinRate = Math.min(0.77, Math.max(0.01, Number((0.15 + crewBonus + synBonus + gearBonus).toFixed(3))));
       lootMin = DAVITO_REWARD_COINS;
       lootMax = DAVITO_REWARD_COINS;
+      maxWinRate = 0.77;
     } else {
-      // Garantizar que siempre exista al menos 24-29% de fallo real en objetivos normales
-      const maxWinRate = Math.min(76, 80 - Math.floor(targetSecInfo.securityLevel / 2));
+      // Límite de éxito independiente por nivel de seguridad:
+      // En ningún nivel puede tener el 100% de éxito (Nivel 1: máx 82%)
+      // En el Nivel 10 de los asaltos el máximo porcentaje de éxito es 55%
+      // Progresión lineal natural de 3% por nivel de seguridad: 82 - (nivel - 1) * 3
+      maxWinRate = getMaxWinRateForSecurity(targetSecInfo.securityLevel);
       finalWinRate = Math.max(15, Math.min(maxWinRate, Math.round(baseWinRate + roleProbBonus)));
       const totalMultiplier = targetSecInfo.tier.lootMultiplier * (1 + lootBonusPct / 100);
       lootMin = Math.round(targetDef.baseLootMin * totalMultiplier);
@@ -320,11 +612,13 @@ export async function startBankHeist(
     return {
       crewSize,
       finalWinRate,
+      maxWinRate,
       lootMin,
       lootMax,
       lootBonusPct,
       distinctRolesCount: distinctRoles.size,
       synergyName,
+      activeSynergies,
       gearDetected,
       hasEmp,
       hasC4,
@@ -332,6 +626,9 @@ export async function startBankHeist(
       hasVan,
       hasAdrenaline,
       isDavito,
+      dailyEvents,
+      leaderGangInfo,
+      gangUpgrades,
     };
   };
 
@@ -348,6 +645,24 @@ export async function startBankHeist(
     const gearText =
       stats.gearDetected.length > 0 ? stats.gearDetected.map((g) => `▸ ${g}`).join("\n") : "*Ninguno aportado aún.*";
 
+    const synergyText =
+      stats.activeSynergies.length > 0
+        ? stats.activeSynergies.map((s) => `▸ **${s.name}**: *${s.desc}*`).join("\n")
+        : "*Ninguna combinación táctica especial activa.*";
+
+    const dailyEv = stats.dailyEvents;
+    const eventLines = [
+      `▸ ${dailyEv.globalEvent.emoji} **${dailyEv.globalEvent.name}** *(Global)*: *${dailyEv.globalEvent.description}*`,
+    ];
+    if (dailyEv.targetEvent) {
+      eventLines.push(`▸ ${dailyEv.targetEvent.emoji} **${dailyEv.targetEvent.name}** *(Objetivo)*: *${dailyEv.targetEvent.description}*`);
+    }
+
+    let gangNotice = "";
+    if (stats.leaderGangInfo) {
+      gangNotice = `\n🏴‍☠️ **Sindicato Criminal:** **[${stats.leaderGangInfo.gang.tag}] ${stats.leaderGangInfo.gang.name}** *(Mejoras: Polvorín Nv. ${stats.gangUpgrades.polvorin}, Taller Nv. ${stats.gangUpgrades.taller})*`;
+    }
+
     const embedColor = stats.isDavito ? 0x990000 : COLORS.crime;
 
     const davitoWarning = stats.isDavito
@@ -361,7 +676,6 @@ export async function startBankHeist(
       : "⚠️ *Si el golpe fracasa y la banda es capturada, los miembros serán encarcelados y recibirán multas judiciales de hasta 500.000 🪙 según su patrimonio (10%).*";
 
     return baseEmbed(embedColor)
-      .setThumbnail(HEIST_MEDIA[targetDef.id] ?? HEIST_MEDIA.banco)
       .setTitle(`${targetDef.emoji} ¡Planificación de Asalto: ${targetDef.name}!`)
       .setDescription(
         `**${leader.username}** está organizando un golpe táctico contra **${targetDef.name}**.\n\n` +
@@ -370,11 +684,13 @@ export async function startBankHeist(
           (!stats.isDavito
             ? `• **Modificador de dificultad:** \`${sec.tier.difficultyMod}%\` | **Multiplicador de botín:** \`×${sec.tier.lootMultiplier}\`\n\n`
             : "\n") +
-          `👥 **Banda:** ${stats.crewSize} / ${stats.isDavito ? 16 : 8} miembros\n` +
-          `🎭 **Sinergia:** ${stats.synergyName}\n` +
-          `🎯 **Probabilidad de éxito estimada:** **~${stats.finalWinRate}%**\n` +
+          `🌍 **Eventos / Mutadores Activos Hoy:**\n${eventLines.join("\n")}${gangNotice}\n\n` +
+          `👥 **Banda:** ${stats.crewSize} / ${stats.isDavito ? 24 : 12} miembros\n` +
+          `🎯 **Probabilidad real de éxito:** **~${stats.finalWinRate}%**` +
+          (!stats.isDavito ? ` *(Tope Nv. ${sec.securityLevel}: ${stats.maxWinRate}%)*\n` : ` *(Tope inviolable: 0.77%)*\n`) +
           `💰 **Botín por cómplice:** **${n(stats.lootMin)} ${stats.lootMin !== stats.lootMax ? `- ${n(stats.lootMax)}` : ""}**\n` +
           `⏳ **Tiempo para unirse o iniciar:** <t:${endsAt}:R>\n\n` +
+          `🎭 **Sinergias Tácticas Activas (${stats.activeSynergies.length}):**\n${synergyText}\n\n` +
           `**Integrantes & Roles:**\n${memberLines.join("\n")}\n\n` +
           `**Equipamiento táctico de la banda:**\n${gearText}${davitoWarning}\n\n` +
           `${fineNotice}`,
@@ -976,6 +1292,7 @@ export async function startBankHeist(
 
       const anims = buildCustomHeistAnimations();
       const canvasCrew: CanvasCrewMember[] = members;
+      const deployedPoliceIds: string[] = [];
 
       // FASE 1: Infiltración y Reconocimiento
       let hud1Attachment: AttachmentBuilder | null = null;
@@ -996,7 +1313,6 @@ export async function startBankHeist(
       }
 
       const phase1Embed = baseEmbed(anims.phase1.color)
-        .setThumbnail(HEIST_MEDIA[targetDef.id] ?? HEIST_MEDIA.banco)
         .setTitle(anims.phase1.title)
         .setDescription(
           `${anims.phase1.progress}\n\n${anims.phase1.description}\n\n⏳ *Infiltrando el perímetro... Siguiente fase en 6 segundos.*`,
@@ -1040,7 +1356,6 @@ export async function startBankHeist(
           }
 
           const qteEmbed = baseEmbed(0x9b59b6)
-            .setThumbnail(HEIST_MEDIA.qte)
             .setTitle(`⚡ [DECISIÓN TÁCTICA ${qNum}/7] ${qte.title} ⏱️ 9s`)
             .setDescription(
               `🌌 **${qte.description}**\n\n` +
@@ -1052,22 +1367,30 @@ export async function startBankHeist(
             qteEmbed.setImage(`attachment://heist_hud_dav_qte_${qNum}.png`);
           }
 
-          const qteRow = new ActionRowBuilder<ButtonBuilder>();
+          const qteRows: ActionRowBuilder<ButtonBuilder>[] = [];
+          let currentDavRow = new ActionRowBuilder<ButtonBuilder>();
           for (const opt of qte.options) {
-            qteRow.addComponents(
+            if (currentDavRow.components.length >= 5) {
+              qteRows.push(currentDavRow);
+              currentDavRow = new ActionRowBuilder<ButtonBuilder>();
+            }
+            currentDavRow.addComponents(
               new ButtonBuilder()
                 .setCustomId(`qte_${opt.id}`)
-                .setLabel(opt.label)
+                .setLabel(opt.label.slice(0, 80))
                 .setEmoji(opt.emoji)
                 .setStyle(opt.style),
             );
+          }
+          if (currentDavRow.components.length > 0) {
+            qteRows.push(currentDavRow);
           }
 
           await interaction
             .editReply({
               embeds: [qteEmbed],
               files: hudQteAttachment ? [hudQteAttachment] : [],
-              components: [qteRow],
+              components: qteRows,
             })
             .catch(() => {});
 
@@ -1143,7 +1466,6 @@ export async function startBankHeist(
           }
 
           const qteResultEmbed = baseEmbed(qteSuccess ? 0x2ecc71 : 0xe74c3c)
-            .setThumbnail(qteSuccess ? HEIST_MEDIA.victory : HEIST_MEDIA.failure)
             .setTitle(qteSuccess ? `✅ [INCIDENTE ${qNum}/7 RESUELTO] ${qte.title}` : `⚠️ [COMPLICACIÓN ${qNum}/7] ${qte.title}`)
             .setDescription(
               `${qteResultNarrative}\n\n` +
@@ -1164,163 +1486,353 @@ export async function startBankHeist(
           await sleep(2500);
         }
       } else {
-        // ── INCIDENTE TÁCTICO PARA ASALTOS REGULARES (1 QTE) ──
-        const qte = getHeistQteForTarget(targetDef.id);
-
-        let hudQteAttachment: AttachmentBuilder | null = null;
-        try {
-          const hudBufferQte = await renderHeistHud({
-            targetDef,
-            securityLevel: targetSec.securityLevel,
-            tier: targetSec.tier,
-            phase: "qte",
-            crew: canvasCrew,
-            progressPct: 55,
-            phaseTitle: "⚡ INCIDENTE TÁCTICO IMPREVISTO",
-            gearDetected: stats.gearDetected,
-          });
-          hudQteAttachment = new AttachmentBuilder(hudBufferQte, { name: "heist_hud_qte.png" });
-        } catch (err) {
-          logger.error("Error generando HUD canvas QTE:", err);
-        }
-
-        const qteEmbed = baseEmbed(0xf59e0b)
-          .setThumbnail(HEIST_MEDIA.qte)
-          .setTitle(`⚡ [DECISIÓN TÁCTICA] ${qte.title} ⏱️ 12s`)
-          .setDescription(
-            `🚨 **${qte.description}**\n\n` +
-              `**¿Qué debe hacer la banda?** Pulsa una opción en los botones de abajo.\n` +
-              `💡 *Si quien pulsa tiene el rol recomendado, la maniobra tiene 100% de efectividad; si pulsa otro miembro, hay riesgo de pifia.*\n` +
-              `⏰ *Tenéis 12 segundos para coordinar la acción antes de que la seguridad reaccione.*`,
-          );
-        if (hudQteAttachment) {
-          qteEmbed.setImage("attachment://heist_hud_qte.png");
-        }
-
-        const qteRow = new ActionRowBuilder<ButtonBuilder>();
-        for (const opt of qte.options) {
-          qteRow.addComponents(
-            new ButtonBuilder()
-              .setCustomId(`qte_${opt.id}`)
-              .setLabel(opt.label)
-              .setEmoji(opt.emoji)
-              .setStyle(opt.style),
-          );
-        }
-
-        await interaction
-          .editReply({
-            embeds: [qteEmbed],
-            files: hudQteAttachment ? [hudQteAttachment] : [],
-            components: [qteRow],
-          })
-          .catch(() => {});
-
-        const qteMsg = await interaction.fetchReply().catch(() => null);
-        let chosenOption: HeistQteOption | null = null;
-        let decidingUser: User | null = null;
-        let qteSuccess = false;
-        let qteResultNarrative = "";
-
-        if (qteMsg) {
+        // ── INTERVENCIÓN POLICIAL SWAT PARA ASALTOS DE NIVEL 6 O SUPERIOR ──
+        if (targetSec.securityLevel >= 6 || targetDef.isSecret) {
           try {
-            const btnInteraction = await qteMsg.awaitMessageComponent({
+            const policeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+              new ButtonBuilder()
+                .setCustomId("police_intercept_deploy")
+                .setLabel("🚔 Desplegar Unidad Policial (0/3)")
+                .setStyle(ButtonStyle.Primary),
+            );
+
+            const getAlertEmbed = (officers: string[]) =>
+              baseEmbed(COLORS.navy)
+                .setTitle("🚨 ¡DESPACHO POLICIAL DE CÓDIGO ROJO!")
+                .setDescription(
+                  `Intrusión armada detectada en **${targetDef.name} (Nivel ${targetSec.securityLevel})**.\n` +
+                    `Se convocan oficiales en activo para desplegar patrullas de intercepción perimétrica.\n\n` +
+                    `🛡️ *Los oficiales reducen la probabilidad de huida (-8% por patrulla) y cobran el 50% de las multas si la banda es arrestada.*\n\n` +
+                    `👮 **Oficiales en posición:** ${officers.length > 0 ? officers.map((id) => `<@${id}>`).join(", ") : "*Esperando unidades tácticas...*"}`,
+                )
+                .setFooter({ text: "Despacho táctico activo durante 12 segundos..." });
+
+            const alertChannel = interaction.channel;
+            if (alertChannel && "send" in alertChannel) {
+              const pMsg = await alertChannel.send({ embeds: [getAlertEmbed([])], components: [policeRow] }).catch(() => null);
+              if (pMsg) {
+                const pCollector = pMsg.createMessageComponentCollector({
+                  componentType: ComponentType.Button,
+                  time: 12_000,
+                  filter: (bi) => {
+                    if (!isUserPolice(gid, bi.user.id)) {
+                      bi.reply({ content: "❌ Solo los miembros en activo del Cuerpo de Policía pueden intervenir.", ephemeral: true }).catch(() => {});
+                      return false;
+                    }
+                    if (crew.has(bi.user.id)) {
+                      bi.reply({ content: "❌ No puedes interceptar a tu propia banda criminal.", ephemeral: true }).catch(() => {});
+                      return false;
+                    }
+                    return true;
+                  },
+                });
+
+                pCollector.on("collect", async (bi) => {
+                  if (!deployedPoliceIds.includes(bi.user.id) && deployedPoliceIds.length < 3) {
+                    deployedPoliceIds.push(bi.user.id);
+                    await bi.reply({ content: `🚓 ¡Patrulla desplegada en el perímetro! (${deployedPoliceIds.length}/3 unidades en posición)`, ephemeral: true }).catch(() => {});
+
+                    const updatedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                      new ButtonBuilder()
+                        .setCustomId("police_intercept_deploy")
+                        .setLabel(`🚔 Desplegar Unidad Policial (${deployedPoliceIds.length}/3)`)
+                        .setStyle(ButtonStyle.Primary)
+                        .setDisabled(deployedPoliceIds.length >= 3),
+                    );
+
+                    await pMsg.edit({ embeds: [getAlertEmbed(deployedPoliceIds)], components: [updatedRow] }).catch(() => {});
+                  } else {
+                    await bi.reply({ content: "El perímetro ya cuenta con las unidades policiales asignadas.", ephemeral: true }).catch(() => {});
+                  }
+                });
+
+                await sleep(12_000);
+                await pMsg.delete().catch(() => {});
+              }
+            }
+          } catch (err) {
+            logger.error("Error en despacho de intercepción policial:", err);
+          }
+        }
+
+        // ── DETERMINAR NÚMERO DE INCIDENTES (1 a 3 QTEs: 80% / 15% / 5%) ──
+        const rollQteCount = rng(1, 100);
+        const qteCount = rollQteCount <= 80 ? 1 : rollQteCount <= 95 ? 2 : 3;
+        const maxTargetWinRate = getMaxWinRateForSecurity(targetSec.securityLevel);
+
+        // ── INCIDENTE 1: MINIJUEGO VISUAL EN CANVAS CON OPERADOR EXCLUSIVO (Opción 1) ──
+        const crewRoles = members.map((m) => m.roleId);
+        const matchingMinigames = HEIST_MINIGAMES.filter((m) => crewRoles.includes(m.roleId));
+        const pool = matchingMinigames.length > 0 ? matchingMinigames : HEIST_MINIGAMES;
+        const minigame = pool[Math.floor(Math.random() * pool.length)]!;
+        const specialistMember = members.find((m) => m.roleId === minigame.roleId);
+
+        let activeOperator: User | null = null;
+        let minigameSuccess = false;
+        let minigameNarrative = "";
+
+        // Fase 1: Reclamación de la Consola Táctica
+        let mgCanvasBuf = await renderMinigameCanvas(minigame, { secondsLeft: 12 });
+        let mgAttach: AttachmentBuilder | null = new AttachmentBuilder(mgCanvasBuf, { name: "heist_minigame.png" });
+
+        const claimButton = new ButtonBuilder()
+          .setCustomId("minigame_claim_console")
+          .setLabel(specialistMember ? `🖐️ [TOMAR EL CONTROL] (Prioridad: ${specialistMember.username})` : "🖐️ [TOMAR EL CONTROL] Asumir Operador")
+          .setStyle(ButtonStyle.Primary);
+
+        const claimRow = new ActionRowBuilder<ButtonBuilder>().addComponents(claimButton);
+
+        const claimEmbed = baseEmbed(0x00f0ff)
+          .setTitle(`⚡ [DESAFÍO TÁCTICO EN CONSOLA] ${minigame.title} ⏱️ 12s`)
+          .setDescription(
+            `🚨 **${minigame.subtitle}**\n\n` +
+              `*${minigame.prompt}*\n\n` +
+              `🔒 **CONTROL EXCLUSIVO DE OPERADOR:** Para evitar que los miembros se pisen y colisionen entre sí, **el primer cómplice en reclamar la consola asume el control único del desafío.**\n` +
+              (specialistMember
+                ? `⭐ <@${specialistMember.userId}> dispone de **3.5s de prioridad** como **${minigame.roleName}**.\n`
+                : "") +
+              `👇 *Pulsa el botón abajo para bloquear la consola:*`,
+          );
+        if (mgAttach) claimEmbed.setImage("attachment://heist_minigame.png");
+
+        await interaction.editReply({ embeds: [claimEmbed], files: mgAttach ? [mgAttach] : [], components: [claimRow] }).catch(() => {});
+
+        const claimMsg = await interaction.fetchReply().catch(() => null);
+        const claimStartTime = Date.now();
+
+        if (claimMsg) {
+          try {
+            const claimInteraction = await claimMsg.awaitMessageComponent({
               filter: (bi) => {
                 if (!crew.has(bi.user.id)) {
                   bi.reply({ content: "❌ No formas parte de esta banda de asalto.", ephemeral: true }).catch(() => {});
                   return false;
                 }
+                if (specialistMember && bi.user.id !== specialistMember.userId) {
+                  const elapsed = Date.now() - claimStartTime;
+                  if (elapsed < 3500) {
+                    bi.reply({
+                      content: `⏳ <@${specialistMember.userId}> tiene prioridad táctica durante 3.5s como ${minigame.roleName}.`,
+                      ephemeral: true,
+                    }).catch(() => {});
+                    return false;
+                  }
+                }
                 return true;
               },
-              time: 12_000,
+              time: 7_500,
               componentType: ComponentType.Button,
             });
 
-            await btnInteraction.deferUpdate().catch(() => {});
-            decidingUser = btnInteraction.user;
-            const optId = btnInteraction.customId.replace(/^qte_/, "");
-            chosenOption = qte.options.find((o) => o.id === optId || `qte_${o.id}` === btnInteraction.customId) || qte.options[0]!;
-
-            const userMemberData = crew.get(decidingUser.id);
-            const isSpecialist =
-              Boolean(chosenOption.recommendedRole) &&
-              userMemberData?.roleId === chosenOption.recommendedRole;
-
-            const maxTargetWinRate = Math.min(76, 80 - Math.floor(targetSec.securityLevel / 2));
-
-            if (isSpecialist) {
-              qteSuccess = true;
-              qteResultNarrative = `🌟 **¡Éxito Magistral de Especialista!** <@${decidingUser.id}> utilizó su maestría como **${chosenOption.roleNameLabel}**:\n${chosenOption.successText}`;
-              stats.finalWinRate = Math.min(maxTargetWinRate, stats.finalWinRate + Math.round(chosenOption.winRateBonus * 0.5));
-              if (chosenOption.lootBonusPct) {
-                stats.lootBonusPct += chosenOption.lootBonusPct;
-                stats.lootMin = Math.round(stats.lootMin * (1 + chosenOption.lootBonusPct / 100));
-                stats.lootMax = Math.round(stats.lootMax * (1 + chosenOption.lootBonusPct / 100));
-              }
-            } else {
-              const roll = rng(1, 100);
-              if (roll <= chosenOption.successChanceNonRole) {
-                qteSuccess = true;
-                qteResultNarrative = `✅ **¡Maniobra Arriesgada Exitosa!** <@${decidingUser.id}> (${userMemberData?.roleTitle ?? "Miembro"}) tomó el riesgo y salió bien:\n${chosenOption.successText}`;
-                stats.finalWinRate = Math.min(maxTargetWinRate, stats.finalWinRate + Math.round(chosenOption.winRateBonus * 0.4));
-                if (chosenOption.lootBonusPct) {
-                  const bonusPct = Math.round(chosenOption.lootBonusPct * 0.7);
-                  stats.lootBonusPct += bonusPct;
-                  stats.lootMin = Math.round(stats.lootMin * (1 + bonusPct / 100));
-                  stats.lootMax = Math.round(stats.lootMax * (1 + bonusPct / 100));
-                }
-              } else {
-                qteSuccess = false;
-                qteResultNarrative = `⚠️ **¡Pifia Táctica!** <@${decidingUser.id}> intentó la maniobra pero la seguridad respondió rápido:\n${chosenOption.failText}`;
-                stats.finalWinRate = Math.max(12, stats.finalWinRate - chosenOption.winRatePenalty);
-              }
-            }
+            await claimInteraction.deferUpdate().catch(() => {});
+            activeOperator = claimInteraction.user;
           } catch {
-            qteSuccess = false;
-            qteResultNarrative = qte.timeoutText;
-            stats.finalWinRate = Math.max(12, stats.finalWinRate - qte.timeoutPenalty);
+            activeOperator = specialistMember ? ({ id: specialistMember.userId, username: specialistMember.username } as User) : null;
           }
         }
 
-        // Mostrar resolución del QTE con Canvas actualizado
-        let hudQteResAttachment: AttachmentBuilder | null = null;
-        try {
-          const hudBufferQteRes = await renderHeistHud({
-            targetDef,
-            securityLevel: targetSec.securityLevel,
-            tier: targetSec.tier,
-            phase: "qte_result",
-            crew: canvasCrew,
-            progressPct: 65,
-            phaseTitle: qteSuccess ? "RESULTADO: ÉXITO TÁCTICO" : "RESULTADO: INCIDENTE AGRAVADO",
-            qteOutcomeSuccess: qteSuccess,
-            gearDetected: stats.gearDetected,
+        // Fase 2: Ejecución del Minijuego por el Operador Activo
+        if (activeOperator) {
+          const isSpecialistOp = specialistMember?.userId === activeOperator.id;
+          mgCanvasBuf = await renderMinigameCanvas(minigame, {
+            operatorName: activeOperator.username,
+            isSpecialist: isSpecialistOp,
+            secondsLeft: 12,
           });
-          hudQteResAttachment = new AttachmentBuilder(hudBufferQteRes, { name: "heist_hud_qte_res.png" });
-        } catch (err) {
-          logger.error("Error generando HUD canvas QTE result:", err);
+          mgAttach = new AttachmentBuilder(mgCanvasBuf, { name: "heist_minigame_active.png" });
+
+          const puzzleRows: ActionRowBuilder<ButtonBuilder>[] = [];
+          let curPuzzleRow = new ActionRowBuilder<ButtonBuilder>();
+          for (const opt of minigame.options) {
+            if (curPuzzleRow.components.length >= 5) {
+              puzzleRows.push(curPuzzleRow);
+              curPuzzleRow = new ActionRowBuilder<ButtonBuilder>();
+            }
+            curPuzzleRow.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`mg_opt_${opt.id}`)
+                .setLabel(opt.label.slice(0, 80))
+                .setEmoji(opt.emoji)
+                .setStyle(ButtonStyle.Secondary),
+            );
+          }
+          if (curPuzzleRow.components.length > 0) puzzleRows.push(curPuzzleRow);
+
+          const puzzleEmbed = baseEmbed(0x00f0ff)
+            .setTitle(`🎮 [CONSOLA EN EJECUCIÓN] ${minigame.title} ⏱️ 12s`)
+            .setDescription(
+              `🕹️ **Operador Activo:** <@${activeOperator.id}> ${isSpecialistOp ? "⭐ *(Especialista)*" : "👤 *(Cómplice)*"}\n\n` +
+                `*${minigame.prompt}*\n\n` +
+                `🔒 *La consola está bloqueada para todos los demás para evitar descalibraciones.*`,
+            );
+          if (mgAttach) puzzleEmbed.setImage("attachment://heist_minigame_active.png");
+
+          await interaction.editReply({ embeds: [puzzleEmbed], files: mgAttach ? [mgAttach] : [], components: puzzleRows }).catch(() => {});
+
+          const puzzleMsg = await interaction.fetchReply().catch(() => null);
+          if (puzzleMsg) {
+            try {
+              const puzzleInteraction = await puzzleMsg.awaitMessageComponent({
+                filter: (bi) => {
+                  if (bi.user.id !== activeOperator!.id) {
+                    bi.reply({
+                      content: `🔒 Consola bloqueada por <@${activeOperator!.id}>. Solo el operador activo puede intervenir.`,
+                      ephemeral: true,
+                    }).catch(() => {});
+                    return false;
+                  }
+                  return true;
+                },
+                time: 12_000,
+                componentType: ComponentType.Button,
+              });
+
+              await puzzleInteraction.deferUpdate().catch(() => {});
+              const chosenOptId = puzzleInteraction.customId.replace("mg_opt_", "");
+              const selectedOpt = minigame.options.find((o) => o.id === chosenOptId) || minigame.options[0]!;
+
+              if (selectedOpt.isCorrect) {
+                minigameSuccess = true;
+                minigameNarrative = `🌟 **¡Desafío Superado por <@${activeOperator.id}>!**\n${selectedOpt.explanation}\n${minigame.successNarrative}`;
+                stats.finalWinRate = Math.min(maxTargetWinRate, stats.finalWinRate + minigame.winRateBonus);
+                stats.lootBonusPct += minigame.lootBonusPct;
+                stats.lootMin = Math.round(stats.lootMin * (1 + minigame.lootBonusPct / 100));
+                stats.lootMax = Math.round(stats.lootMax * (1 + minigame.lootBonusPct / 100));
+
+                const opGang = getUserGang(gid, activeOperator.id);
+                if (opGang) {
+                  incrementGangContractProgress(gid, opGang.gang.id, "qte_reflex", 1);
+                }
+              } else {
+                minigameSuccess = false;
+                minigameNarrative = `⚠️ **¡Error en la Consola por <@${activeOperator.id}>!**\n${selectedOpt.explanation}\n${minigame.failNarrative}`;
+                stats.finalWinRate = Math.max(15, stats.finalWinRate - minigame.winRatePenalty);
+              }
+            } catch {
+              minigameSuccess = false;
+              minigameNarrative = `⏱️ **¡Tiempo Agotado en la Consola!** <@${activeOperator.id}> no seleccionó una opción a tiempo.\n${minigame.failNarrative}`;
+              stats.finalWinRate = Math.max(15, stats.finalWinRate - minigame.winRatePenalty);
+            }
+          }
+        } else {
+          minigameSuccess = false;
+          minigameNarrative = "⚠️ Nadie asumió el control de la consola a tiempo. Los sistemas de seguridad sellaron el acceso perimétrico.";
+          stats.finalWinRate = Math.max(15, stats.finalWinRate - minigame.winRatePenalty);
         }
 
-        const qteResultEmbed = baseEmbed(qteSuccess ? 0x2ecc71 : 0xe74c3c)
-          .setThumbnail(qteSuccess ? HEIST_MEDIA.victory : HEIST_MEDIA.failure)
-          .setTitle(qteSuccess ? `✅ [INCIDENTE RESUELTO] ${qte.title}` : `⚠️ [COMPLICACIÓN TÁCTICA] ${qte.title}`)
-          .setDescription(
-            `${qteResultNarrative}\n\n` +
-              `📊 **Probabilidad actual de éxito:** ~${stats.finalWinRate}%\n\n` +
-              `⏳ *Avanzando a la extracción... Leyendo situación en 5.5 segundos.*`,
-          );
-        if (hudQteResAttachment) {
-          qteResultEmbed.setImage("attachment://heist_hud_qte_res.png");
-        }
+        const mgResEmbed = baseEmbed(minigameSuccess ? 0x2ecc71 : 0xe74c3c)
+          .setTitle(minigameSuccess ? `✅ [DESAFÍO COMPLETADO] ${minigame.title}` : `⚠️ [DESAFÍO FALLIDO] ${minigame.title}`)
+          .setDescription(`${minigameNarrative}\n\n📊 **Probabilidad actual de éxito:** ~${stats.finalWinRate}%\n\n⏳ *Continuando con la fase de asalto...*`);
 
-        await interaction
-          .editReply({
-            embeds: [qteResultEmbed],
-            files: hudQteResAttachment ? [hudQteResAttachment] : [],
-            components: [],
-          })
-          .catch(() => {});
-        await sleep(5500);
+        await interaction.editReply({ embeds: [mgResEmbed], components: [], files: [] }).catch(() => {});
+        await sleep(2500);
+
+        // ── INCIDENTES 2 Y 3 (SI SE GENERARON): DECISIÓN COLECTIVA DE BANDA ──
+        if (qteCount > 1) {
+          const targetIncidents = HEIST_QTE_INCIDENTS[targetDef.id] ?? HEIST_QTE_INCIDENTS.banco!;
+          const shuffled = [...targetIncidents].sort(() => Math.random() - 0.5);
+          const extraIncidents = shuffled.slice(0, qteCount - 1);
+
+          for (let eIdx = 0; eIdx < extraIncidents.length; eIdx++) {
+            const extraQte = extraIncidents[eIdx]!;
+            const incNum = eIdx + 2;
+
+            const qteRows: ActionRowBuilder<ButtonBuilder>[] = [];
+            let curQteRow = new ActionRowBuilder<ButtonBuilder>();
+            for (const opt of extraQte.options) {
+              if (curQteRow.components.length >= 5) {
+                qteRows.push(curQteRow);
+                curQteRow = new ActionRowBuilder<ButtonBuilder>();
+              }
+              curQteRow.addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`gqte_${opt.id}`)
+                  .setLabel(opt.label.slice(0, 80))
+                  .setEmoji(opt.emoji)
+                  .setStyle(opt.style),
+              );
+            }
+            if (curQteRow.components.length > 0) qteRows.push(curQteRow);
+
+            const groupEmbed = baseEmbed(0xf59e0b)
+              .setTitle(`👥 [DECISIÓN GRUPAL DE BANDA ${incNum}/${qteCount}] ${extraQte.title} ⏱️ 10s`)
+              .setDescription(
+                `🚨 **${extraQte.description}**\n\n` +
+                  `🗳️ **VOTACIÓN COLECTIVA:** Todos los miembros de la banda pueden emitir su voto. La opción más votada por la banda se ejecutará conjuntamente.\n\n` +
+                  `⏰ *Tenéis 10 segundos para votar:*`,
+              );
+
+            await interaction.editReply({ embeds: [groupEmbed], components: qteRows, files: [] }).catch(() => {});
+
+            const gMsg = await interaction.fetchReply().catch(() => null);
+            const votes = new Map<string, string>();
+
+            if (gMsg) {
+              const gCollector = gMsg.createMessageComponentCollector({
+                filter: (bi) => {
+                  if (!crew.has(bi.user.id)) {
+                    bi.reply({ content: "❌ No formas parte de esta banda de asalto.", ephemeral: true }).catch(() => {});
+                    return false;
+                  }
+                  return true;
+                },
+                time: 10_000,
+                componentType: ComponentType.Button,
+              });
+
+              gCollector.on("collect", async (bi) => {
+                const optId = bi.customId.replace("gqte_", "");
+                votes.set(bi.user.id, optId);
+                const optObj = extraQte.options.find((o) => o.id === optId);
+                await bi.reply({
+                  content: `✅ Has votado por: **${optObj?.label ?? optId}**. (Votos actuales de la banda: ${votes.size})`,
+                  ephemeral: true,
+                }).catch(() => {});
+              });
+
+              await sleep(10_000);
+            }
+
+            // Contar votos
+            const tally: Record<string, number> = {};
+            for (const optId of votes.values()) {
+              tally[optId] = (tally[optId] || 0) + 1;
+            }
+            let winningOptId = extraQte.options[0]!.id;
+            let maxVotes = 0;
+            for (const [optId, vCount] of Object.entries(tally)) {
+              if (vCount > maxVotes) {
+                maxVotes = vCount;
+                winningOptId = optId;
+              }
+            }
+
+            const chosenOpt = extraQte.options.find((o) => o.id === winningOptId) || extraQte.options[0]!;
+            const isSuccess = rng(1, 100) <= chosenOpt.successChanceNonRole;
+
+            if (isSuccess) {
+              stats.finalWinRate = Math.min(maxTargetWinRate, stats.finalWinRate + chosenOpt.winRateBonus);
+              if (chosenOpt.lootBonusPct) {
+                stats.lootBonusPct += chosenOpt.lootBonusPct;
+                stats.lootMin = Math.round(stats.lootMin * (1 + chosenOpt.lootBonusPct / 100));
+                stats.lootMax = Math.round(stats.lootMax * (1 + chosenOpt.lootBonusPct / 100));
+              }
+            } else {
+              stats.finalWinRate = Math.max(15, stats.finalWinRate - chosenOpt.winRatePenalty);
+            }
+
+            const gResEmbed = baseEmbed(isSuccess ? 0x2ecc71 : 0xe74c3c)
+              .setTitle(isSuccess ? `✅ [DECISIÓN GRUPAL EXITOSA] ${extraQte.title}` : `⚠️ [COMPLICACIÓN GRUPAL] ${extraQte.title}`)
+              .setDescription(
+                `🗳️ **Estrategia Elegida por la Banda:** **${chosenOpt.label}** (${maxVotes} votos recibidos).\n\n` +
+                  (isSuccess ? chosenOpt.successText : chosenOpt.failText) +
+                  `\n\n📊 **Probabilidad actual de éxito:** ~${stats.finalWinRate}%\n\n⏳ *Continuando con la extracción...*`,
+              );
+
+            await interaction.editReply({ embeds: [gResEmbed], components: [], files: [] }).catch(() => {});
+            await sleep(2500);
+          }
+        }
       }
 
       // FASE 3: Alarma & Extracción
@@ -1342,7 +1854,6 @@ export async function startBankHeist(
       }
 
       const phase3Embed = baseEmbed(anims.phase3.color)
-        .setThumbnail(HEIST_MEDIA.phase3)
         .setTitle(anims.phase3.title)
         .setDescription(
           `${anims.phase3.progress}\n\n${anims.phase3.description}\n\n⏳ *Extracción a toda velocidad... Resolución final en 6 segundos.*`,
@@ -1387,7 +1898,7 @@ export async function startBankHeist(
         if (!success && stats.hasAdrenaline && roll <= stats.finalWinRate + 6) {
           usedAdrenaline = true;
           const secondRoll = rng(1, 100);
-          if (secondRoll <= Math.min(45, Math.round(stats.finalWinRate * 0.5))) {
+          if (secondRoll <= Math.min(45, Math.round(stats.finalWinRate * 0.5) + 10)) {
             success = true;
           }
         }
@@ -1405,6 +1916,45 @@ export async function startBankHeist(
 
         const lootPerPerson = stats.isDavito ? DAVITO_REWARD_COINS : rng(stats.lootMin, stats.lootMax);
         const totalLoot = lootPerPerson * members.length;
+
+        // Registrar botín, influencia territorial y contratos para todas las bandas participantes
+        let territoryNotice = "";
+        const crewGangs = new Map<string, { gang: GangRecord; count: number }>();
+        for (const m of members) {
+          const userG = getUserGang(gid, m.userId);
+          if (userG) {
+            const existing = crewGangs.get(userG.gang.id);
+            if (existing) existing.count++;
+            else crewGangs.set(userG.gang.id, { gang: userG.gang, count: 1 });
+          }
+        }
+
+        for (const { gang, count } of crewGangs.values()) {
+          const gangLoot = lootPerPerson * count;
+          recordGangHeistLoot(gid, gang.id, gangLoot);
+          const terrRes = recordHeistTerritoryInfluence(gid, targetDef.id, gang.id, count);
+          if (terrRes?.changedOwner && terrRes.newController) {
+            territoryNotice += `\n\n🏴‍☠️ **¡NUEVA BANDA DOMINANTE!** La banda **[${terrRes.newController.tag}] ${terrRes.newController.name}** ha arrebatado el control del **${terrRes.districtName}**!`;
+          }
+          incrementGangContractProgress(gid, gang.id, "heist_runs", 1);
+          incrementGangContractProgress(gid, gang.id, "loot_haul", gangLoot);
+        }
+
+        // Tira de drop de reliquia
+        const relicDrop = rollRelicDrop(targetDef.id);
+        let relicNotice = "";
+        if (relicDrop) {
+          if (stats.isDavito) {
+            for (const m of members) {
+              awardRelicToUser(gid, m.userId, relicDrop);
+            }
+            relicNotice = `\n\n💎 **¡RELIQUIA CÓSMICA SAQUEADA!**\n¡Todos los miembros han obtenido **${relicDrop.emoji} ${relicDrop.name}** (*${relicDrop.rarity}*, empeño: \`${n(relicDrop.pawnValue)} 🪙\`) para su vitrina personal!`;
+          } else {
+            const luckyMember = members[Math.floor(Math.random() * members.length)]!;
+            awardRelicToUser(gid, luckyMember.userId, relicDrop);
+            relicNotice = `\n\n💎 **¡RELIQUIA SAQUEADA DE LA BÓVEDA!**\n<@${luckyMember.userId}> ha descubierto y asegurado **${relicDrop.emoji} ${relicDrop.name}** (*${relicDrop.rarity}*, empeño: \`${n(relicDrop.pawnValue)} 🪙\`). (Exhíbela con \`/asalto vitrina\`).`;
+          }
+        }
 
         // Entregar botín económico
         getDb().transaction(() => {
@@ -1430,12 +1980,13 @@ export async function startBankHeist(
         })();
 
         // Actualizar estadísticas de seguridad del objetivo
-        const { security: updatedSec, justUnlockedDavito } = recordTargetHeistResult(
+        const { security: updatedSec, justUnlockedDavito, justReachedLevel10 } = recordTargetHeistResult(
           gid,
           targetDef.id,
           true,
           totalLoot,
         );
+        syncHeistPinnedGuide(interaction.client, gid).catch(() => {});
 
         // Reparto de XP de rol y reputación criminal
         const xpNotices: string[] = [];
@@ -1480,9 +2031,15 @@ export async function startBankHeist(
         if (justUnlockedDavito) {
           unlockAnnouncement =
             `\n\n🚨 **¡¡¡ALERTA MÁXIMA DEL INFRAMUNDO: CÓDIGO OMEGA ACTIVADO!!!** 🚨\n` +
-            `¡Todos los objetivos de asalto del servidor han alcanzado el **Nivel Máximo (Nivel 10)**!\n` +
+            `¡Todos los objetivos de asalto del servidor han completado su **Nivel Máximo (Nivel 10)**!\n` +
             `Se ha desclasificado la ubicación de la **Fortaleza Inexpugnable de Davito**.\n` +
             `El asalto secreto ya está disponible para planificar usando \`/asalto iniciar objetivo:davito\`.`;
+        } else if (justReachedLevel10) {
+          const prog = getDavitoUnlockProgress(gid);
+          unlockAnnouncement =
+            `\n\n⭐ **¡HITO DE NIVEL 10 REGISTRADO!** ⭐\n` +
+            `¡El objetivo **${targetDef.name}** ha alcanzado el Nivel 10! Este hito ha quedado **permanentemente registrado** para el descifrado de la Fortaleza de Davito (no se perderá si el nivel desciende).\n` +
+            `Progreso hacia el Asalto Secreto: **${prog.maxedCount} / ${prog.totalStandard} Hitos Registrados**.`;
         }
 
         if (stats.isDavito) {
@@ -1505,7 +2062,6 @@ export async function startBankHeist(
           }
 
           const winEmbed = baseEmbed(0xf1c40f)
-            .setThumbnail(HEIST_MEDIA.victory)
             .setTitle("👑 ¡¡¡HISTÓRICO: LA FORTALEZA DE DAVITO HA SIDO CONQUISTADA!!! 👑")
             .setDescription(
               `¡¡CONTRA TODO PRONÓSTICO CÓSMICO (probabilidad menor al 1%), la banda ha doblegado las defensas absolutas de Davito y ha reclamado el tesoro supremo!!\n\n` +
@@ -1515,7 +2071,9 @@ export async function startBankHeist(
                 `▸ **Botín Total Saqueado:** **${n(totalLoot)}**\n` +
                 `⭐ **Experiencia ganada:** +550 XP de Rol | +1.000 Reputación Criminal\n${adrenalineNote}\n\n` +
                 `**Supervivientes Legendarios:**\n${memberLines}` +
-                (xpNotices.length > 0 ? `\n\n**Subidas de Rango:**\n${xpNotices.join("\n")}` : ""),
+                (xpNotices.length > 0 ? `\n\n**Subidas de Rango:**\n${xpNotices.join("\n")}` : "") +
+                relicNotice +
+                territoryNotice,
             );
           if (hudWinAttach) {
             winEmbed.setImage("attachment://heist_hud_win.png");
@@ -1546,7 +2104,6 @@ export async function startBankHeist(
           }
 
           const winEmbed = baseEmbed(COLORS.success)
-            .setThumbnail(HEIST_MEDIA.victory)
             .setTitle(`💰 ¡¡¡ASALTO EXITOSO: ${targetDef.name}!!! 💰`)
             .setDescription(
               `¡La banda burló las defensas de **${targetDef.name}**, reventó los blindajes y escapó con el botín!\n\n` +
@@ -1556,7 +2113,9 @@ export async function startBankHeist(
                 `⭐ **Experiencia ganada:** +110 XP de Rol | +150 Reputación Criminal\n${adrenalineNote}\n\n` +
                 `**Reparto del Botín:**\n${memberLines}` +
                 (xpNotices.length > 0 ? `\n\n**Subidas de Rango:**\n${xpNotices.join("\n")}` : "") +
-                unlockAnnouncement,
+                unlockAnnouncement +
+                relicNotice +
+                territoryNotice,
             );
           if (hudWinAttach) {
             winEmbed.setImage("attachment://heist_hud_win.png");
@@ -1579,9 +2138,9 @@ export async function startBankHeist(
           }
         }
 
-        let rescueChance = hasConductor ? 35 + conductorLevel * 4 : 0;
+        let rescueChance = hasConductor ? 20 + conductorLevel * 2 : 0;
         if (stats.hasVan) {
-          rescueChance = Math.max(rescueChance, 60);
+          rescueChance = Math.max(rescueChance, 45);
           for (const m of members) {
             const eco = getEco(gid, m.userId);
             if (takeItem(eco, "furgon_blindado")) {
@@ -1591,15 +2150,27 @@ export async function startBankHeist(
           }
         }
 
-        // Si es Davito, las defensas planetarias reducen drásticamente la tasa de huida (máximo 15%)
+        // Taller de fuga de la banda: +2.5% a +12% de huida (5 niveles)
+        if (stats.gangUpgrades.taller > 0) {
+          const tallerTiers = [0, 2.5, 5, 7.5, 10, 12];
+          rescueChance += tallerTiers[Math.min(5, stats.gangUpgrades.taller)] || 0;
+        }
+
+        // Intervención policial: cada oficial desplegado en el perímetro reduce la huida criminal en 8%
+        if (deployedPoliceIds.length > 0) {
+          rescueChance = Math.max(0, rescueChance - deployedPoliceIds.length * 8);
+        }
+
+        // Si es Davito, las defensas planetarias reducen drásticamente la tasa de huida (máximo 8%)
         if (stats.isDavito) {
-          rescueChance = Math.min(15, Math.round(rescueChance * 0.25));
+          rescueChance = Math.min(8, Math.round(rescueChance * 0.15));
         }
 
         const rescued = rescueChance > 0 && rng(1, 100) <= rescueChance;
 
         // Actualizar seguridad del objetivo (-1 nivel si no es secreto)
         const { security: updatedSec } = recordTargetHeistResult(gid, targetDef.id, false, 0);
+        syncHeistPinnedGuide(interaction.client, gid).catch(() => {});
 
         // Asignar XP de consolación
         for (const m of members) {
@@ -1639,7 +2210,6 @@ export async function startBankHeist(
           }
 
           const escapeEmbed = baseEmbed(COLORS.warn)
-            .setThumbnail(HEIST_MEDIA.escape)
             .setTitle(`🚨 ¡EL GOLPE A ${targetDef.shortName.toUpperCase()} FALLÓ, PERO HUBO ESCAPE! 🚗💨`)
             .setDescription(
               `Sonaron las alarmas y las fuerzas de seguridad bloquearon el perímetro, pero el **Conductor de Fuga** embistió los controles y rescató a la banda.\n\n` +
@@ -1668,6 +2238,13 @@ export async function startBankHeist(
             reducedMinutes = Math.max(1, Math.round(reducedMinutes * 0.60));
           }
 
+          // Clínica clandestina de la banda: reduce el calabozo un 10% por nivel (máx 50%)
+          if (stats.gangUpgrades.clinica > 0) {
+            const clinicaReduction = Math.min(0.50, stats.gangUpgrades.clinica * 0.10);
+            jailMinutes = Math.max(2, Math.round(jailMinutes * (1 - clinicaReduction)));
+            reducedMinutes = Math.max(1, Math.round(reducedMinutes * (1 - clinicaReduction)));
+          }
+
           const standardJail = Date.now() + jailMinutes * 60_000;
           const reducedJail = Date.now() + reducedMinutes * 60_000;
 
@@ -1678,6 +2255,7 @@ export async function startBankHeist(
           }
 
           const penalties: MemberPenalty[] = [];
+          let totalFinePool = 0;
 
           // Negociador para descuento de multas
           const negociadorMember = members.find((m) => m.roleId === "negociador");
@@ -1716,6 +2294,12 @@ export async function startBankHeist(
                   const discountPct = Math.min(0.60, 0.30 + negociadorMember.roleLevel * 0.03);
                   fineAmount = Math.round(fineAmount * (1 - discountPct));
                 }
+
+                // Bufete de abogados de la banda: reduce multas judiciales un 7% por nivel (máx 35%)
+                if (stats.gangUpgrades.abogados > 0 && fineAmount > 0) {
+                  const lawyerDiscount = Math.min(0.35, stats.gangUpgrades.abogados * 0.07);
+                  fineAmount = Math.round(fineAmount * (1 - lawyerDiscount));
+                }
               }
 
               if (isImmune) {
@@ -1725,6 +2309,7 @@ export async function startBankHeist(
               if (!isImmune && fineAmount > 0) {
                 deductFunds(eco, fineAmount);
                 saveEco(eco, `Multa judicial por asalto fallido a ${targetDef.shortName}`);
+                totalFinePool += fineAmount;
               } else {
                 saveEco(eco);
               }
@@ -1736,6 +2321,11 @@ export async function startBankHeist(
               });
             }
           })();
+
+          // Si hubo policías desplegados y se cobraron multas, repartir el 50% entre los oficiales
+          if (deployedPoliceIds.length > 0 && totalFinePool > 0) {
+            recordPoliceIntercept(gid, deployedPoliceIds, totalFinePool);
+          }
 
           const jailLines = penalties
             .map((p) => {
@@ -1768,15 +2358,20 @@ export async function startBankHeist(
             ? `⚖️ *Al tratarse de la Fortaleza de Davito, cada asaltante ha perdido el 25% de todo su patrimonio acumulado (cartera + banco sin límite).*`
             : `⚖️ *Las multas judiciales proporcionales (hasta un máximo de 500.000 🪙) han sido descontadas de los fondos de cada implicado.*`;
 
+          const policeNotice =
+            deployedPoliceIds.length > 0
+              ? `\n\n🚔 **Intervención SWAT Policial Exitosa:**\n` +
+                `Los oficiales ${deployedPoliceIds.map((id) => `<@${id}>`).join(", ")} intervinieron la zona y se repartieron el 50% de las multas estatales (**+${n(Math.floor(totalFinePool * 0.5))}**).`
+              : "";
+
           const failEmbed = baseEmbed(COLORS.danger)
-            .setThumbnail(HEIST_MEDIA.failure)
             .setTitle(`🚨 ¡¡¡EL ASALTO A ${targetDef.shortName.toUpperCase()} HA SIDO UN FRACASO TOTAL!!! 🚨`)
             .setDescription(
               `Los refuerzos tácticos rodearon y neutralizaron a la banda en plena huida.\n\n` +
                 `🏛️ **${targetDef.name}:** El blindaje retrocede a **Nivel ${updatedSec.securityLevel} (${updatedSec.tier.name})**.\n` +
                 `🚔 **Toda la banda ha sido detenida y trasladada al calabozo policial.**\n\n` +
                 `**Sanciones y Condenas:**\n${jailLines}\n\n` +
-                `${penaltyNotice}\n` +
+                `${penaltyNotice}${policeNotice}\n` +
                 `⭐ **Experiencia adquirida:** +45 XP de Rol | +30 Reputación Criminal`,
             );
           if (hudFailAttach) {
@@ -1855,9 +2450,31 @@ export async function startBankHeist(
         return;
       }
 
-      const maxCrew = targetDef.id === "davito" ? 16 : 8;
+      const maxCrew = targetDef.id === "davito" ? 24 : 12;
       if (crew.size >= maxCrew) {
         await i.reply({ content: `La banda ya está al máximo de capacidad (${maxCrew} criminales).`, ephemeral: true });
+        return;
+      }
+
+      if (isUserPolice(gid, i.user.id)) {
+        const policeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`${heistId}:police_desert:${i.user.id}`)
+            .setLabel("🚨 Desertar de la Policía y Entrar al Golpe")
+            .setStyle(ButtonStyle.Danger),
+        );
+        await i.reply({
+          embeds: [
+            errorEmbed(
+              "⚠️ Oficial del Cuerpo de Policía",
+              "Eres un oficial en activo del Cuerpo de Policía de Nexo.\n\n" +
+                "Tienes terminantemente prohibido participar en asaltos criminales.\n" +
+                "Si decides desertar, perderás tu placa y se te impondrá un **COOLDOWN DE 3 DÍAS** antes de poder volver a ingresar en la policía.",
+            ),
+          ],
+          components: [policeRow],
+          ephemeral: true,
+        });
         return;
       }
 
@@ -1881,6 +2498,33 @@ export async function startBankHeist(
       });
 
       await i.update({ embeds: [getEmbed()] });
+      return;
+    }
+
+    if (i.customId.startsWith(`${heistId}:police_desert:`)) {
+      desertPoliceForce(gid, i.user.id);
+      const userProfile = getUserHeistProfile(gid, i.user.id);
+      const roleState = getUserRoleState(gid, i.user.id, userProfile.activeRole);
+
+      crew.set(i.user.id, {
+        userId: i.user.id,
+        username: i.user.username,
+        roleId: roleState.roleId,
+        roleLevel: roleState.level,
+        roleTitle: roleState.title,
+        avatarUrl: i.user.displayAvatarURL({ extension: "png", size: 128 }),
+      });
+
+      await i.update({
+        embeds: [
+          successEmbed(
+            "🚨 Has Desertado de la Policía",
+            "Has renunciado a tu placa policial (3 días de cooldown para reingreso) y te has unido a la banda criminal.",
+          ),
+        ],
+        components: [],
+      });
+      await interaction.editReply({ embeds: [getEmbed()] }).catch(() => {});
       return;
     }
 

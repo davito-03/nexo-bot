@@ -4,6 +4,7 @@ import { COLORS } from "../../constants.js";
 import {
   CD,
   CRIMES,
+  addPot,
   addWallet,
   cdCheck,
   chance,
@@ -62,7 +63,10 @@ async function execute(interaction: ChatInputCommandInteraction) {
 
         const fine = rng(80, 250);
         const isImmune = me.user_id === "600041740124160011";
-        if (!isImmune) addWallet(me, -fine);
+        if (!isImmune) {
+          addWallet(me, -fine);
+          addPot(gid, Math.floor(fine * 0.10));
+        }
         const insured = takeItem(me, "seguro");
         if (!insured && !isImmune) me.jailed_until = Date.now() + rng(2, 6) * 60_000;
         saveEco(me);
@@ -142,7 +146,10 @@ async function execute(interaction: ChatInputCommandInteraction) {
       } else {
         const fine = Math.max(40, Math.floor(me.wallet * 0.12));
         const isImmune = me.user_id === "600041740124160011";
-        if (!isImmune) addWallet(me, -fine);
+        if (!isImmune) {
+          addWallet(me, -fine);
+          addPot(gid, Math.floor(fine * 0.10));
+        }
         const insured = takeItem(me, "seguro");
         if (!insured && !isImmune) me.jailed_until = Date.now() + 3 * 60_000;
         saveEco(me);
@@ -166,17 +173,71 @@ async function execute(interaction: ChatInputCommandInteraction) {
         return;
       }
       me.last_hack = Date.now();
-      if (takeItem(victim, "vpn")) {
-        saveEco(victim);
-        saveEco(me);
-        await interaction.reply({
-          embeds: [crimeEmbed("VPN").setDescription(`${targetUser} tenía VPN. El ataque ha rebotado.`)],
-        });
-        return;
+      const isImmune = me.user_id === "600041740124160011";
+
+      // ── SISTEMA DE GUERRA CIBERNÉTICA (VPN VS EXPLOIT ZERO-DAY) ──
+      const victimHasVpn = takeItem(victim, "vpn");
+      let vpnPierced = false;
+
+      if (victimHasVpn) {
+        const attackerHasZeroDay = takeItem(me, "zero_day");
+        if (attackerHasZeroDay) {
+          // 35% de probabilidad de perforar la VPN
+          vpnPierced = chance(35);
+        }
+
+        if (!vpnPierced) {
+          // El ataque ha sido repelido por la VPN
+          // Probabilidad de contra-rastreo cibernético (30% con Zero-Day, 20% sin él)
+          const counterTrace = chance(attackerHasZeroDay ? 30 : 20);
+          if (counterTrace) {
+            const penaltyRate = attackerHasZeroDay ? 0.10 : 0.06;
+            const penalty = Math.max(80, Math.floor(me.wallet * penaltyRate));
+            if (!isImmune) {
+              addWallet(me, -penalty);
+              addPot(gid, Math.floor(penalty * 0.10));
+            }
+            const bounty = Math.floor(penalty * 0.5);
+            victim.bank += bounty;
+            saveEco(victim);
+            saveEco(me);
+
+            await interaction.reply({
+              embeds: [
+                crimeEmbed("🛡️ ¡VPN & CONTRA-RASTREO CIBERNÉTICO!")
+                  .setColor(COLORS.navy)
+                  .setDescription(
+                    `El firewall y la VPN de ${targetUser} detectaron tu intrusión y ejecutaron un **rastreo inverso inmediato** a tu terminal.\n\n` +
+                      `▸ **Estado:** Ataque repelido y neutralizado.\n` +
+                      `▸ **Sanción de Ciberseguridad:** Has perdido **${n(penalty)}**.\n` +
+                      `▸ **Recompensa Defensiva:** Se han transferido **+${n(bounty)}** al banco de ${targetUser}.\n` +
+                      (attackerHasZeroDay ? `*(Tu Exploit Zero-Day ha sido destruido en el intento)*` : ""),
+                  ),
+              ],
+            });
+            return;
+          }
+
+          saveEco(victim);
+          saveEco(me);
+          await interaction.reply({
+            embeds: [
+              crimeEmbed("🛡️ VPN Activa")
+                .setDescription(
+                  `${targetUser} tenía una VPN Encriptada activa. El ataque ha rebotado.\n` +
+                    (attackerHasZeroDay ? `*(Tu Exploit Zero-Day no logró vulnerar los protocolos cuánticos)*` : ""),
+                ),
+            ],
+          });
+          return;
+        }
       }
+
+      // Si no tenía VPN o la VPN fue perforada por el Exploit Zero-Day:
       let pct = 32;
       if (takeItem(me, "kit")) pct += 18;
       const ok = chance(pct);
+
       if (ok) {
         const steal = Math.max(50, Math.floor(victim.bank * (rng(15, 40) / 100)));
         victim.bank = Math.max(0, victim.bank - steal);
@@ -184,9 +245,12 @@ async function execute(interaction: ChatInputCommandInteraction) {
         saveEco(me);
         saveEco(victim);
         const colDrop = checkActivityDrop(gid, interaction.user.id);
-        const emb = crimeEmbed("Hack")
+        const emb = crimeEmbed("⚡ Hackeo Exitoso")
           .setColor(COLORS.success)
-          .setDescription(`Has drenado ${n(steal)} del banco de ${targetUser}.`);
+          .setDescription(
+            (vpnPierced ? `💥 **¡PERFORACIÓN ZERO-DAY!** Tu malware vulneró la VPN de ${targetUser} y desactivó sus defensas.\n\n` : "") +
+              `Has drenado **${n(steal)}** de los fondos bancarios de ${targetUser}.`,
+          );
         if (colDrop.dropped && colDrop.item) {
           emb.addFields({
             name: "✨ ¡Coleccionable encontrado!",
@@ -195,17 +259,19 @@ async function execute(interaction: ChatInputCommandInteraction) {
         }
         await interaction.reply({ embeds: [emb] });
       } else {
-
         const fine = Math.max(80, Math.floor(me.wallet * 0.18));
-        const isImmune = me.user_id === "600041740124160011";
-        if (!isImmune) addWallet(me, -fine);
+        if (!isImmune) {
+          addWallet(me, -fine);
+          addPot(gid, Math.floor(fine * 0.10));
+        }
         const insured = takeItem(me, "seguro");
         if (!insured && !isImmune) me.jailed_until = Date.now() + 5 * 60_000;
         saveEco(me);
         await interaction.reply({
           embeds: [
             crimeEmbed("Traceback").setDescription(
-              `Te han rastreado. Multa ${n(fine)}.${insured ? " El seguro evita el calabozo." : " 5 min de calabozo."}`,
+              (vpnPierced ? `Infiltraste la VPN pero el banco detectó la anomalía durante la extracción.\n` : "") +
+                `Te han rastreado. Multa ${n(fine)}.${insured ? " El seguro evita el calabozo." : " 5 min de calabozo."}`,
             ),
           ],
         });
@@ -237,7 +303,10 @@ async function execute(interaction: ChatInputCommandInteraction) {
       } else {
         const fine = rng(60, 200);
         const isImmune = me.user_id === "600041740124160011";
-        if (!isImmune) addWallet(me, -fine);
+        if (!isImmune) {
+          addWallet(me, -fine);
+          addPot(gid, Math.floor(fine * 0.10));
+        }
         saveEco(me);
         await interaction.reply({
           embeds: [crimeEmbed("Te han denunciado").setDescription(`No ha colado. Multa ${n(fine)}.`)],

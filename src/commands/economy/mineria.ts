@@ -358,12 +358,12 @@ const command: Command = {
     }
 
     // Panel por defecto (/mineria panel)
-    const { embed, calc, miner } = buildMinerPanelEmbed(gid, uid, interaction.user.username);
-    const row = buildActionButtons(calc, miner);
+    let currentPanel = buildMinerPanelEmbed(gid, uid, interaction.user.username);
+    let currentRow = buildActionButtons(currentPanel.calc, currentPanel.miner);
 
     const msg = await interaction.reply({
-      embeds: [embed],
-      components: [row],
+      embeds: [currentPanel.embed],
+      components: [currentRow],
       fetchReply: true,
     });
 
@@ -385,8 +385,9 @@ const command: Command = {
           return;
         }
         await i.deferUpdate();
-        const updated = buildMinerPanelEmbed(gid, uid, interaction.user.username);
-        await i.editReply({ embeds: [updated.embed], components: [buildActionButtons(updated.calc, updated.miner)] });
+        currentPanel = buildMinerPanelEmbed(gid, uid, interaction.user.username);
+        currentRow = buildActionButtons(currentPanel.calc, currentPanel.miner);
+        await i.editReply({ embeds: [currentPanel.embed], components: [currentRow] });
         return;
       }
 
@@ -397,8 +398,9 @@ const command: Command = {
           return;
         }
         await i.deferUpdate();
-        const updated = buildMinerPanelEmbed(gid, uid, interaction.user.username);
-        await i.editReply({ embeds: [updated.embed], components: [buildActionButtons(updated.calc, updated.miner)] });
+        currentPanel = buildMinerPanelEmbed(gid, uid, interaction.user.username);
+        currentRow = buildActionButtons(currentPanel.calc, currentPanel.miner);
+        await i.editReply({ embeds: [currentPanel.embed], components: [currentRow] });
         return;
       }
 
@@ -409,27 +411,30 @@ const command: Command = {
           return;
         }
         await i.deferUpdate();
-        const updated = buildMinerPanelEmbed(gid, uid, interaction.user.username);
-        await i.editReply({ embeds: [updated.embed], components: [buildActionButtons(updated.calc, updated.miner)] });
+        currentPanel = buildMinerPanelEmbed(gid, uid, interaction.user.username);
+        currentRow = buildActionButtons(currentPanel.calc, currentPanel.miner);
+        await i.editReply({ embeds: [currentPanel.embed], components: [currentRow] });
         return;
       }
 
       if (i.customId === "mineria_asset") {
-        // Rotar cíclicamente al siguiente activo
-        const currentIndex = SUPPORTED_MINING_ASSETS.findIndex((a) => a.id === miner.target_asset);
+        // Rotar cíclicamente al siguiente activo usando el estado más fresco de la base de datos
+        const freshMiner = getOrCreateMiner(gid, uid);
+        const currentIndex = SUPPORTED_MINING_ASSETS.findIndex((a) => a.id === freshMiner.target_asset);
         const nextAsset = SUPPORTED_MINING_ASSETS[(currentIndex + 1) % SUPPORTED_MINING_ASSETS.length]!;
         setMinerTargetAsset(gid, uid, nextAsset.id);
 
         await i.deferUpdate();
-        const updated = buildMinerPanelEmbed(gid, uid, interaction.user.username);
-        await i.editReply({ embeds: [updated.embed], components: [buildActionButtons(updated.calc, updated.miner)] });
+        currentPanel = buildMinerPanelEmbed(gid, uid, interaction.user.username);
+        currentRow = buildActionButtons(currentPanel.calc, currentPanel.miner);
+        await i.editReply({ embeds: [currentPanel.embed], components: [currentRow] });
         return;
       }
     });
 
     collector.on("end", async () => {
       try {
-        const disabledRow = ActionRowBuilder.from(row);
+        const disabledRow = ActionRowBuilder.from(currentRow);
         disabledRow.components.forEach((c) => (c as ButtonBuilder).setDisabled(true));
         await msg.edit({ components: [disabledRow as any] });
       } catch {

@@ -271,45 +271,107 @@ export async function closeTicket(ticket: TicketRow, closer: GuildMember, reason
   const msgs = getDb()
     .prepare("SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY created_at")
     .all(ticket.id) as TranscriptMessage[];
-  const html = renderTranscriptHtml(guild.name, ticket.id, ticket.opener_id, ticket.category, msgs);
+  const html = await renderTranscriptHtml(guild, ticket.id, ticket.opener_id, ticket.category, msgs);
   const file = saveTranscript(guild.id, ticket.id, html);
   getDb()
     .prepare("UPDATE tickets SET status = 'closed', closed_at = ?, close_reason = ? WHERE id = ?")
     .run(Date.now(), reason, ticket.id);
+
+  // 1. Generación de Resumen Inteligente por IA (si hubo conversación)
+  let aiSummary: string | undefined;
+  if (msgs.length >= 2) {
+    try {
+      const convoText = msgs
+        .slice(-25)
+        .map((m) => `${m.author_tag}: ${m.content}`)
+        .join("\n");
+      if (convoText.trim().length > 25) {
+        const aiRes = await completeChat({
+          system:
+            "Eres el asistente del sistema de tickets de soporte de Discord. Resume el ticket en exactamente 2 o 3 viñetas muy concisas en español indicando el problema planteado y cómo se resolvió. Máximo 50 palabras en total. No incluyas saludos ni despedidas.",
+          messages: [{ role: "user", content: `Conversación ticket #${ticket.id} (${ticket.category}):\n${convoText}` }],
+        });
+        if (aiRes?.text) {
+          aiSummary = aiRes.text.trim();
+        }
+      }
+    } catch {
+      /* ignore ai error */
+    }
+  }
 
   const cfg = getGuildConfig(guild.id);
   const logCh = cfg.tickets.transcriptChannelId || cfg.tickets.logChannelId;
   if (logCh) {
     const dest = guild.channels.cache.get(logCh);
     if (dest?.isTextBased() && "send" in dest) {
+      const staffUser = ticket.claimed_by ? await guild.client.users.fetch(ticket.claimed_by).catch(() => null) : null;
+      const transcriptLines = [
+        `Transcripción ticket **#${ticket.id}**`,
+        `Abre: <@${ticket.opener_id}> (\`${ticket.opener_id}\`)`,
+        ticket.claimed_by ? `Atendido por: **${staffUser ? staffUser.tag : ticket.claimed_by}** (\`${ticket.claimed_by}\`)` : null,
+        `Cierra: **${closer.user.tag}** (\`${closer.id}\`)`,
+        `Razón: ${reason}`,
+      ];
+      if (aiSummary) {
+        transcriptLines.push(`\n**🤖 Resumen IA:**\n${aiSummary}`);
+      }
       await dest
         .send({
-          content: [
-            `Transcripción ticket **#${ticket.id}**`,
-            `Abre: <@${ticket.opener_id}> (\`${ticket.opener_id}\`)`,
-            ticket.claimed_by ? `Reclama: <@${ticket.claimed_by}> (\`${ticket.claimed_by}\`)` : null,
-            `Cierra: ${closer} (\`${closer.id}\`)`,
-            `Razón: ${reason}`,
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          content: transcriptLines.filter(Boolean).join("\n"),
           files: [{ attachment: file, name: `ticket-${ticket.id}.html` }],
+          allowedMentions: { parse: [] },
         })
         .catch(() => null);
     }
   }
+
+  const extraFields: Record<string, string> = {
+    "Cerrado por": `**${closer.user.tag}** (\`${closer.id}\`)`,
+    "Razón": reason || "—",
+    "Mensajes": String(msgs.length),
+  };
+  if (aiSummary) {
+    extraFields["🤖 Resumen IA"] = aiSummary;
+  }
+
   await sendTicketLog(
     guild,
     { ...ticket, status: "closed" },
     "Ticket cerrado",
     COLORS.danger,
-    {
-      "Cerrado por": `${closer} (\`${closer.id}\`)`,
-      "Razón": reason || "—",
-      "Mensajes": String(msgs.length),
-    },
+    extraFields,
     closer.id,
   );
+
+  // 2. Encuesta de Satisfacción por Mensaje Directo (DM) al creador
+  try {
+    const openerUser = await guild.client.users.fetch(ticket.opener_id).catch(() => null);
+    if (openerUser) {
+      const surveyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`ticket_feedback:${ticket.id}:1`).setLabel("⭐ 1").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`ticket_feedback:${ticket.id}:2`).setLabel("⭐ 2").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`ticket_feedback:${ticket.id}:3`).setLabel("⭐ 3").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`ticket_feedback:${ticket.id}:4`).setLabel("⭐ 4").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`ticket_feedback:${ticket.id}:5`).setLabel("⭐ 5").setStyle(ButtonStyle.Success),
+      );
+
+      const surveyEmbed = new EmbedBuilder()
+        .setColor(COLORS.primary)
+        .setTitle(`⭐ Encuesta de Satisfacción · Ticket #${ticket.id}`)
+        .setDescription(
+          `Tu ticket de soporte **#${ticket.id}** (\`${ticket.category}\`) en **${guild.name}** ha finalizado.\n\n` +
+            `¿Cómo calificarías la atención recibida por nuestro equipo?\n` +
+            `Puntúa del **1 al 5** pulsando uno de los siguientes botones. ¡Tu opinión nos ayuda a seguir mejorando!`,
+        )
+        .setFooter({ text: "Tu valoración quedará registrada en el sistema de calidad." });
+
+      await openerUser.send({ embeds: [surveyEmbed], components: [surveyRow] }).catch(() => null);
+    }
+  } catch {
+    /* opener DMs might be disabled */
+  }
+
   if (channel?.isTextBased() && "send" in channel) {
     await (channel as GuildTextBasedChannel).send("Ticket cerrado. El canal se elimina en 5s.").catch(() => null);
     setTimeout(() => {
@@ -317,6 +379,81 @@ export async function closeTicket(ticket: TicketRow, closer: GuildMember, reason
     }, 5000);
   }
 }
+
+export async function handleTicketFeedbackButton(interaction: ButtonInteraction): Promise<void> {
+  const parts = interaction.customId.split(":");
+  const ticketId = Number.parseInt(parts[1] ?? "0", 10);
+  const rating = Number.parseInt(parts[2] ?? "0", 10);
+
+  if (!ticketId || rating < 1 || rating > 5) {
+    await interaction.reply({ content: "Valoración inválida.", ephemeral: true });
+    return;
+  }
+
+  const existing = getDb()
+    .prepare("SELECT id FROM ticket_feedback WHERE ticket_id = ?")
+    .get(ticketId) as { id: number } | undefined;
+
+  if (existing) {
+    await interaction.reply({
+      content: "⚠️ Ya has enviado tu valoración para este ticket anteriormente. ¡Muchas gracias!",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const ticket = getDb()
+    .prepare("SELECT * FROM tickets WHERE id = ?")
+    .get(ticketId) as TicketRow | undefined;
+
+  const guildId = ticket?.guild_id ?? interaction.guildId ?? "";
+  const staffId = ticket?.claimed_by ?? null;
+
+  getDb()
+    .prepare(
+      `INSERT INTO ticket_feedback (guild_id, ticket_id, opener_id, staff_id, rating, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(guildId, ticketId, interaction.user.id, staffId, rating, Date.now());
+
+  const stars = "⭐".repeat(rating);
+  const thanksEmbed = new EmbedBuilder()
+    .setColor(COLORS.success)
+    .setTitle("✨ ¡Muchas Gracias por tu Valoración!")
+    .setDescription(
+      `Has calificado la atención de tu **Ticket #${ticketId}** con **${rating} / 5** (${stars}).\n\n` +
+        `Tu opinión ha quedado registrada en el sistema y ayuda al staff a seguir ofreciendo la mejor atención posible.`,
+    );
+
+  await interaction.update({ embeds: [thanksEmbed], components: [] });
+
+  if (guildId) {
+    const client = interaction.client;
+    const guild = client.guilds.cache.get(guildId);
+    if (guild) {
+      const cfg = getGuildConfig(guildId);
+      const logCh = cfg.tickets.logChannelId || cfg.logs.tickets;
+      if (logCh) {
+        const dest = guild.channels.cache.get(logCh);
+        if (dest?.isTextBased() && "send" in dest) {
+          const staffUser = staffId ? await client.users.fetch(staffId).catch(() => null) : null;
+          const staffDisplay = staffUser ? `**${staffUser.tag}** (\`${staffId}\`)` : staffId ? `\`${staffId}\`` : "*Sin asignar*";
+          const logFeedbackEmbed = new EmbedBuilder()
+            .setColor(rating >= 4 ? COLORS.success : rating <= 2 ? COLORS.danger : COLORS.gold)
+            .setTitle(`⭐ Valoración de Ticket #${ticketId}`)
+            .setDescription(
+              `▸ **Usuario:** <@${interaction.user.id}> (\`${interaction.user.id}\`)\n` +
+                `▸ **Staff responsable:** ${staffDisplay}\n` +
+                `▸ **Calificación:** **${rating} / 5** (${stars})\n` +
+                `▸ **Fecha:** <t:${Math.floor(Date.now() / 1000)}:R>`,
+            );
+          await (dest as any).send({ embeds: [logFeedbackEmbed], allowedMentions: { parse: [] } }).catch(() => null);
+        }
+      }
+    }
+  }
+}
+
 
 const aiCooldown = new Map<number, number>();
 const aiQueues = new Map<number, Promise<void>>();
@@ -326,17 +463,25 @@ export async function handleTicketMessage(message: Message): Promise<void> {
   const ticket = getTicketByChannel(message.channelId);
   if (!ticket || ticket.status === "closed") return;
 
+  const attachmentData = [...message.attachments.values()].map((a) => ({
+    url: a.url,
+    name: a.name,
+    contentType: a.contentType,
+    size: a.size,
+  }));
+
   getDb()
     .prepare(
-      `INSERT INTO ticket_messages (ticket_id, author_id, author_tag, content, attachments, created_at, is_bot)
-       VALUES (?, ?, ?, ?, ?, ?, 0)`,
+      `INSERT INTO ticket_messages (ticket_id, message_id, author_id, author_tag, content, attachments, created_at, is_bot)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
     )
     .run(
       ticket.id,
+      message.id,
       message.author.id,
       message.author.tag,
       message.content,
-      JSON.stringify([...message.attachments.values()].map((a) => a.url)),
+      JSON.stringify(attachmentData),
       Date.now(),
     );
 
@@ -353,6 +498,34 @@ export async function handleTicketMessage(message: Message): Promise<void> {
   const current = previous.then(() => generateTicketReply(message, ticket, cfg));
   aiQueues.set(ticket.id, current.catch(() => undefined));
   await current;
+}
+
+export function recordTicketMessageEdit(messageId: string, newContent: string): void {
+  try {
+    const row = getDb()
+      .prepare("SELECT content, original_content FROM ticket_messages WHERE message_id = ?")
+      .get(messageId) as { content: string | null; original_content: string | null } | undefined;
+    if (!row) return;
+
+    const originalContent = row.original_content ?? row.content;
+    getDb()
+      .prepare(
+        "UPDATE ticket_messages SET content = ?, original_content = ?, edited_at = ? WHERE message_id = ?",
+      )
+      .run(newContent, originalContent, Date.now(), messageId);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function recordTicketMessageDelete(messageId: string): void {
+  try {
+    getDb()
+      .prepare("UPDATE ticket_messages SET deleted_at = ? WHERE message_id = ?")
+      .run(Date.now(), messageId);
+  } catch {
+    /* ignore */
+  }
 }
 
 async function generateTicketReply(
@@ -401,9 +574,9 @@ async function generateTicketReply(
   });
   getDb()
     .prepare(
-      `INSERT INTO ticket_messages (ticket_id, author_id, author_tag, content, attachments, created_at, is_bot)
-       VALUES (?, ?, ?, ?, '[]', ?, 1)`,
+      `INSERT INTO ticket_messages (ticket_id, message_id, author_id, author_tag, content, attachments, created_at, is_bot)
+       VALUES (?, ?, ?, ?, ?, '[]', ?, 1)`,
     )
-    .run(ticket.id, sent.author.id, "Neko IA", reply.text, Date.now());
+    .run(ticket.id, sent.id, sent.author.id, "Neko IA", reply.text, Date.now());
   void refreshSummary(ticket.id, [...messages, { role: "assistant", content: reply.text }]);
 }

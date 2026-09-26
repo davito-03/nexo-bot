@@ -2,8 +2,8 @@ import { ChannelType, SlashCommandBuilder, type AutocompleteInteraction, type Ch
 import { getGuildConfig, setGuildConfig } from "../../database/index.js";
 import { requireStaff } from "../../utils/permissions.js";
 import { ecoEmbed, errorEmbed, ephemeral, onlyGuild, successEmbed } from "../../utils/embeds.js";
-import { n } from "../../modules/economy/engine.js";
-import { autocompleteShop, findItem } from "../../modules/economy/shop.js";
+import { getEco, invOf, n } from "../../modules/economy/engine.js";
+import { autocompleteShop, findItem, isUnsellableItem } from "../../modules/economy/shop.js";
 import { buyListing, cancelListing, createListing, listMarket, logMarket } from "../../modules/economy/market.js";
 import type { Command } from "../../types/index.js";
 
@@ -26,6 +26,26 @@ function mercadoCommand(
 async function autocomplete(interaction: AutocompleteInteraction) {
   if (!interaction.inCachedGuild()) {
     await interaction.respond([]);
+    return;
+  }
+  const sub = interaction.options.getSubcommand(false);
+  if (sub === "vender") {
+    const eco = getEco(interaction.guild.id, interaction.user.id);
+    const inv = invOf(eco);
+    const q = interaction.options.getFocused().toLowerCase();
+    const options = Object.entries(inv)
+      .filter(([id, count]) => count > 0 && !isUnsellableItem(interaction.guild.id, id))
+      .map(([id, count]) => {
+        const item = findItem(interaction.guild.id, id);
+        const name = item ? item.name : id;
+        return {
+          name: `${name} (tienes ×${count})`.slice(0, 100),
+          value: id,
+        };
+      })
+      .filter((opt) => !q || opt.name.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q))
+      .slice(0, 25);
+    await interaction.respond(options);
     return;
   }
   await interaction.respond(autocompleteShop(interaction.guild.id, interaction.options.getFocused()));

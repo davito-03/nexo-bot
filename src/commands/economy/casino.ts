@@ -8,6 +8,7 @@ import {
 } from "discord.js";
 import { casinoEmbed, errorEmbed, ephemeral, onlyGuild } from "../../utils/embeds.js";
 import { COLORS } from "../../constants.js";
+import { sleep } from "../../utils/time.js";
 import {
   CD,
   addWallet,
@@ -195,15 +196,44 @@ async function execute(interaction: ChatInputCommandInteraction) {
       const lado = interaction.options.getString("lado", true);
       const roll = chance(50 + (lucky ? 6 : 0)) ? lado : lado === "cara" ? "cruz" : "cara";
       const win = roll === lado;
-      addWallet(me, win ? bet : -bet);
+      const gain = win ? (lucky ? Math.floor(bet * 1.12) : bet) : -bet;
+      addWallet(me, gain);
       saveEco(me);
+
       await interaction.reply({
         embeds: [
-          casinoEmbed("Coinflip")
-            .setColor(win ? COLORS.success : COLORS.danger)
-            .setDescription(`Ha salido **${roll}**. ${win ? `Ganas ${n(bet)}` : `Pierdes ${n(bet)}`}.\nCartera ${n(me.wallet)}`),
+          casinoEmbed("Coinflip · Lanzando moneda")
+            .setColor(COLORS.casino)
+            .setDescription(
+              `🪙 **LANZAMIENTO DE MONEDA** 🪙\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `🌀 *Lanzando la moneda al aire... ¡Gira a toda velocidad!*\n` +
+              `🎲 *¿Cara o Cruz?*\n\n` +
+              `💰 Apuesta: **${n(bet)}** al **${lado.toUpperCase()}**`
+            ),
         ],
       });
+
+      await sleep(850);
+
+      const rollEmoji = roll === "cara" ? "👑" : "⚔️";
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Coinflip · Resultado")
+              .setColor(win ? COLORS.success : COLORS.danger)
+              .setDescription(
+                `🪙 **LANZAMIENTO DE MONEDA** 🪙\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `✨ *¡Clink! La moneda cayó en:* **${roll.toUpperCase()}** ${rollEmoji}\n\n` +
+                (win
+                  ? `🎉 **¡Has acertado!**\nPremio: **+${n(gain + bet)}**${lucky ? " 🍀" : ""} (Ganancia neta: **+${n(gain)}**)`
+                  : `💀 **No hubo suerte...**\nPierdes: **-${n(bet)}**`) +
+                `\n\n👛 Cartera: **${n(me.wallet)}**`
+              ),
+          ],
+        })
+        .catch(() => null);
       return;
     }
 
@@ -221,22 +251,106 @@ async function execute(interaction: ChatInputCommandInteraction) {
       } else if (a === b || b === c || a === c) mult = 1.6;
       if (lucky && mult > 0) mult *= 1.12;
       const delta = mult > 0 ? Math.floor(bet * mult) - bet : -bet;
-      addWallet(me, delta);
+      const totalGain = delta + wonJackpot;
+      addWallet(me, totalGain);
       saveEco(me);
       checkUserAchievements(interaction.guild.id, interaction.user.id);
 
-      let desc = `**${a} ${b} ${c}**\n${mult > 0 ? `Premio ${n(delta + bet)}` : `Pierdes ${n(bet)}`}\nCartera ${n(me.wallet)}`;
-      if (wonJackpot > 0) {
-        desc = `🎰💥 **¡¡¡JACKPOT GLOBAL PROGRESIVO!!!** 💥🎰\n**${a} ${b} ${c}**\n🎉 ¡Te llevas el bote acumulado de **${n(wonJackpot)}**!\nPremio de tirada: +${n(delta + bet)}\nCartera ${n(me.wallet)}`;
-      }
+      const top1 = SLOTS[rng(0, SLOTS.length - 1)]!;
+      const bot1 = SLOTS[rng(0, SLOTS.length - 1)]!;
+      const top2 = SLOTS[rng(0, SLOTS.length - 1)]!;
+      const bot2 = SLOTS[rng(0, SLOTS.length - 1)]!;
+      const top3 = SLOTS[rng(0, SLOTS.length - 1)]!;
+      const bot3 = SLOTS[rng(0, SLOTS.length - 1)]!;
 
+      const slotFrame = (
+        r1: [string, string, string],
+        r2: [string, string, string],
+        r3: [string, string, string],
+        status: string
+      ) =>
+        `╭──── 🎰 **TRAGAPERRAS** 🎰 ────╮\n` +
+        `│     ${r1[0]}   │   ${r1[1]}   │   ${r1[2]}     │\n` +
+        `▶  »  ${r2[0]}   │   ${r2[1]}   │   ${r2[2]}  «  ◀\n` +
+        `│     ${r3[0]}   │   ${r3[1]}   │   ${r3[2]}     │\n` +
+        `╰───────────────────────────╯\n\n` +
+        status;
+
+      // Frame 1: Girando rodillos
       await interaction.reply({
         embeds: [
-          casinoEmbed("Slots")
-            .setColor(wonJackpot > 0 ? COLORS.eco : mult > 0 ? COLORS.success : COLORS.danger)
-            .setDescription(desc),
+          casinoEmbed("Slots · ¡Girando rodillos!")
+            .setColor(COLORS.casino)
+            .setDescription(
+              slotFrame(
+                ["🌀", "🔄", "🌀"],
+                ["🔄", "🌀", "🔄"],
+                ["🌀", "🔄", "🌀"],
+                `🎲 *Tirando de la palanca... ¡Girando a toda velocidad!*\n💰 Apuesta: **${n(bet)}**`
+              )
+            ),
         ],
       });
+
+      await sleep(850);
+
+      // Frame 2: Se detienen los primeros rodillos (crea anticipación)
+      const suspense =
+        a === b
+          ? `🔥 *¡Doble ${a}! ¡Tensión máxima en el último rodillo...!*`
+          : `🎲 *¡Frenando rodillos...!*`;
+
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Slots · ¡Frenando!")
+              .setColor(COLORS.casino)
+              .setDescription(
+                slotFrame(
+                  [top1, top2, "🌀"],
+                  [a, b, "🔄"],
+                  [bot1, bot2, "🌀"],
+                  `${suspense}\n💰 Apuesta: **${n(bet)}**`
+                )
+              ),
+          ],
+        })
+        .catch(() => null);
+
+      await sleep(850);
+
+      // Frame 3: Resultado final
+      let resultText = "";
+      if (wonJackpot > 0) {
+        resultText =
+          `🎰💥 **¡¡¡JACKPOT GLOBAL PROGRESIVO!!!** 💥🎰\n` +
+          `🎉 ¡Felicidades! ¡Te llevas el bote acumulado de **${n(wonJackpot)}**!\n` +
+          `⭐ Premio de tirada: **+${n(delta + bet)}**\n` +
+          `💰 **Total acreditado automáticamente:** **+${n(totalGain + bet)}**\n` +
+          `👛 Cartera: **${n(me.wallet)}**`;
+      } else if (mult > 0) {
+        const isTriple = a === b && b === c;
+        resultText =
+          `${isTriple ? "🎉 **¡¡TRIPLE COINCIDENCIA!!** 🎉" : "✨ **¡Línea premiada!**"}\n` +
+          `Multiplicador: **x${mult >= 2 ? mult : mult.toFixed(1)}**${lucky ? " 🍀 *(+12% por amuleto)*" : ""}\n` +
+          `💵 Cobras: **+${n(delta + bet)}** (Ganancia neta: **+${n(delta)}**)\n` +
+          `👛 Cartera: **${n(me.wallet)}**`;
+      } else {
+        resultText =
+          `💀 **No hubo suerte esta vez...**\n` +
+          `Has perdido: **-${n(bet)}**\n` +
+          `👛 Cartera: **${n(me.wallet)}**`;
+      }
+
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Slots · Resultado")
+              .setColor(wonJackpot > 0 ? COLORS.eco : mult > 0 ? COLORS.success : COLORS.danger)
+              .setDescription(slotFrame([top1, top2, top3], [a, b, c], [bot1, bot2, bot3], resultText)),
+          ],
+        })
+        .catch(() => null);
       return;
     }
 
@@ -250,13 +364,58 @@ async function execute(interaction: ChatInputCommandInteraction) {
       const delta = mult ? Math.floor(bet * mult) - bet : -bet;
       addWallet(me, delta);
       saveEco(me);
+
       await interaction.reply({
         embeds: [
-          casinoEmbed("Ruleta")
-            .setColor(mult ? COLORS.success : COLORS.danger)
-            .setDescription(`Bola en **${landed}**. ${mult ? `Ganas ${n(delta + bet)}` : `Pierdes ${n(bet)}`}.\nCartera ${n(me.wallet)}`),
+          casinoEmbed("Ruleta · ¡Girando!")
+            .setColor(COLORS.casino)
+            .setDescription(
+              `🎡 **RULETA EUROPEA** 🎡\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `🎡 *El croupier lanza la bola de marfil...*\n` +
+              `🔴 ⚫ 🟢 🔴 ⚫ *¡Gira a toda velocidad en el cilindro!*\n\n` +
+              `💰 Apuesta: **${n(bet)}** al **${color.toUpperCase()}**`
+            ),
         ],
       });
+
+      await sleep(850);
+
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Ruleta · Frenando...")
+              .setColor(COLORS.casino)
+              .setDescription(
+                `🎡 **RULETA EUROPEA** 🎡\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `⚪ *La bola pierde velocidad y comienza a rebotar entre los casilleros...*\n\n` +
+                `💰 Apuesta: **${n(bet)}** al **${color.toUpperCase()}**`
+              ),
+          ],
+        })
+        .catch(() => null);
+
+      await sleep(850);
+
+      const colorEmoji = landed === "verde" ? "🟢" : landed === "rojo" ? "🔴" : "⚫";
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Ruleta · Resultado")
+              .setColor(mult ? COLORS.success : COLORS.danger)
+              .setDescription(
+                `🎡 **RULETA EUROPEA** 🎡\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🎯 *¡La bola ha caído en:* **${landed.toUpperCase()}** ${colorEmoji} *(Nº ${spin})*!\n\n` +
+                (mult
+                  ? `🎉 **¡Has acertado el color!**\nPremio: **+${n(delta + bet)}** (x${mult >= 2 ? mult : mult.toFixed(1)}${lucky ? " 🍀" : ""})\nGanancia neta: **+${n(delta)}**`
+                  : `💀 **No ha caído en tu color.**\nPierdes: **-${n(bet)}**`) +
+                `\n\n👛 Cartera: **${n(me.wallet)}**`
+              ),
+          ],
+        })
+        .catch(() => null);
       return;
     }
 
@@ -266,13 +425,42 @@ async function execute(interaction: ChatInputCommandInteraction) {
       const payout = win ? Math.floor(bet * (lucky ? 1.12 : 1)) : -bet;
       addWallet(me, win ? payout : -bet);
       saveEco(me);
+
+      const diceEmojis = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+
       await interaction.reply({
         embeds: [
-          casinoEmbed("Dados")
-            .setColor(win ? COLORS.success : COLORS.danger)
-            .setDescription(`Ha salido **${die}**. ${win ? `Ganas ${n(payout)}` : `Pierdes ${n(bet)}`}.\nCartera ${n(me.wallet)}`),
+          casinoEmbed("Dados · Agitando cubilete")
+            .setColor(COLORS.casino)
+            .setDescription(
+              `🎲 **LANZAMIENTO DE DADOS** 🎲\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `🎲 *Agitando el cubilete con fuerza...*\n` +
+              `⚂ ⚅ ⚁ *¡Los dados ruedan sobre el tapete!*\n\n` +
+              `💰 Apuesta: **${n(bet)}** *(Ganas con 4, 5 o 6)*`
+            ),
         ],
       });
+
+      await sleep(850);
+
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Dados · Resultado")
+              .setColor(win ? COLORS.success : COLORS.danger)
+              .setDescription(
+                `🎲 **LANZAMIENTO DE DADOS** 🎲\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🎯 *El dado se detiene:* **${die}** ${diceEmojis[die]}\n\n` +
+                (win
+                  ? `🎉 **¡Tirada ganadora!** (Puntuación de 4 o superior)\nPremio: **+${n(payout + bet)}**${lucky ? " 🍀" : ""} (Ganancia neta: **+${n(payout)}**)`
+                  : `💀 **Tirada perdedora** (Puntuación inferior a 4)\nPierdes: **-${n(bet)}**`) +
+                `\n\n👛 Cartera: **${n(me.wallet)}**`
+              ),
+          ],
+        })
+        .catch(() => null);
       return;
     }
 
@@ -319,13 +507,51 @@ async function execute(interaction: ChatInputCommandInteraction) {
       if (win === "win") addWallet(me, lucky ? Math.floor(bet * 1.12) : bet);
       else if (win === "lose") addWallet(me, -bet);
       saveEco(me);
+
+      const rpsEmojis: Record<string, string> = { piedra: "🪨", papel: "📄", tijera: "✂️" };
+
       await interaction.reply({
         embeds: [
-          casinoEmbed("RPS")
-            .setColor(win === "win" ? COLORS.success : win === "lose" ? COLORS.danger : COLORS.warn)
-            .setDescription(`Tú **${pick}** vs Neko **${bot}**.\n${win === "push" ? "Empate." : win === "win" ? `Ganas ${n(bet)}` : `Pierdes ${n(bet)}`}\nCartera ${n(me.wallet)}`),
+          casinoEmbed("Piedra, Papel o Tijera")
+            .setColor(COLORS.casino)
+            .setDescription(`✊ **¡Piedra...!**\n\n💰 Apuesta: **${n(bet)}**`),
         ],
       });
+
+      await sleep(550);
+
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Piedra, Papel o Tijera")
+              .setColor(COLORS.casino)
+              .setDescription(`✋ **¡...Papel...!** ✌️ **¡...Tijera...!**\n\n💰 Apuesta: **${n(bet)}**`),
+          ],
+        })
+        .catch(() => null);
+
+      await sleep(650);
+
+      const gain = win === "win" ? (lucky ? Math.floor(bet * 1.12) : bet) : 0;
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Piedra, Papel o Tijera · Resultado")
+              .setColor(win === "win" ? COLORS.success : win === "lose" ? COLORS.danger : COLORS.warn)
+              .setDescription(
+                `🎯 **¡YA!**\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `👤 Tú elegiste: **${rpsEmojis[pick] ?? ""} ${pick.toUpperCase()}**\n` +
+                `🤖 Neko eligió: **${rpsEmojis[bot] ?? ""} ${bot.toUpperCase()}**\n\n` +
+                (win === "push"
+                  ? "🤝 **¡Empate!** Se te devuelve la apuesta."
+                  : win === "win"
+                    ? `🎉 **¡Has ganado!**\nPremio: **+${n(gain + bet)}**${lucky ? " 🍀" : ""} (Ganancia neta: **+${n(gain)}**)`
+                    : `💀 **Has perdido.**\nPierdes: **-${n(bet)}**`) +
+                `\n\n👛 Cartera: **${n(me.wallet)}**`
+              ),
+          ],
+        })
+        .catch(() => null);
       return;
     }
 
@@ -333,19 +559,68 @@ async function execute(interaction: ChatInputCommandInteraction) {
       const first = rng(1, 13);
       const second = rng(1, 13);
       const win = second > first;
-      addWallet(me, win ? (lucky ? Math.floor(bet * 1.12) : bet) : -bet);
+      const gain = win ? (lucky ? Math.floor(bet * 1.12) : bet) : -bet;
+      addWallet(me, gain);
       saveEco(me);
+
+      const cardName = (v: number) => (v === 1 ? "A" : v === 11 ? "J" : v === 12 ? "Q" : v === 13 ? "K" : String(v));
+
       await interaction.reply({
         embeds: [
-          casinoEmbed("¿Mayor?")
-            .setColor(win ? COLORS.success : COLORS.danger)
-            .setDescription(`Primera **${first}** → segunda **${second}**.\n${win ? `Ganas ${n(bet)}` : `Pierdes ${n(bet)}`}\nCartera ${n(me.wallet)}`),
+          casinoEmbed("Mayor o Menor · Barajando")
+            .setColor(COLORS.casino)
+            .setDescription(
+              `🃏 **MAYOR O MENOR** 🃏\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `🎴 Primera carta: **[ ${cardName(first)} ]**\n` +
+              `❓ *¿Será la siguiente carta mayor? Barajando el mazo...*\n\n` +
+              `💰 Apuesta: **${n(bet)}**`
+            ),
         ],
       });
+
+      await sleep(850);
+
+      await interaction
+        .editReply({
+          embeds: [
+            casinoEmbed("Mayor o Menor · Resultado")
+              .setColor(win ? COLORS.success : COLORS.danger)
+              .setDescription(
+                `🃏 **MAYOR O MENOR** 🃏\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🎴 Primera carta: **[ ${cardName(first)} ]**\n` +
+                `🎴 Segunda carta: **[ ${cardName(second)} ]**\n\n` +
+                (win
+                  ? `🎉 **¡Es mayor!** (${cardName(second)} > ${cardName(first)})\nPremio: **+${n(gain + bet)}**${lucky ? " 🍀" : ""} (Ganancia neta: **+${n(gain)}**)`
+                  : `💀 **No es mayor...** (${cardName(second)} ≤ ${cardName(first)})\nPierdes: **-${n(bet)}**`) +
+                `\n\n👛 Cartera: **${n(me.wallet)}**`
+              ),
+          ],
+        })
+        .catch(() => null);
+      return;
     }
 }
 
 async function finishBlackjack(interaction: ButtonInteraction, id: string, game: BjGame): Promise<void> {
+  await interaction
+    .update({
+      embeds: [
+        casinoEmbed("Blackjack · Turno del Croupier")
+          .setColor(COLORS.casino)
+          .setDescription(
+            `🃏 *El croupier voltea su carta oculta y toma cartas si suma menos de 17...*\n\n` +
+            `Dealer: **${game.dealer[0]}** + 🂠\n\n` +
+            game.hands.map((h, i) => `**Mano ${i + 1}:** ${handStr(h.cards)}`).join("\n")
+          ),
+      ],
+      components: [],
+    })
+    .catch(() => null);
+
+  await sleep(900);
+
   while (total(game.dealer) < 17) game.dealer.push(draw());
   const dealerTotal = total(game.dealer);
   const me = getEco(game.guildId, game.userId);
@@ -373,14 +648,16 @@ async function finishBlackjack(interaction: ButtonInteraction, id: string, game:
   if (returned) addWallet(me, returned);
   saveEco(me);
   bjGames.delete(id);
-  await interaction.update({
-    embeds: [
-      casinoEmbed("Blackjack · resultado")
-        .setColor(returned > game.hands.length * game.bet ? COLORS.success : returned ? COLORS.warn : COLORS.danger)
-        .setDescription(`${lines.join("\n")}\n\nDealer: ${handStr(game.dealer)}\nRetorno total: **${n(returned)}**\nCartera: **${n(me.wallet)}**`),
-    ],
-    components: [],
-  });
+  await interaction
+    .editReply({
+      embeds: [
+        casinoEmbed("Blackjack · Resultado")
+          .setColor(returned > game.hands.length * game.bet ? COLORS.success : returned ? COLORS.warn : COLORS.danger)
+          .setDescription(`${lines.join("\n")}\n\nDealer: ${handStr(game.dealer)}\nRetorno total: **${n(returned)}**\nCartera: **${n(me.wallet)}**`),
+      ],
+      components: [],
+    })
+    .catch(() => null);
 }
 
 async function advanceBlackjack(interaction: ButtonInteraction, id: string, game: BjGame): Promise<void> {

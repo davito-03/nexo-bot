@@ -1,5 +1,4 @@
 import { getDb } from "../../database/index.js";
-import { getEco, saveEco, addWallet } from "./engine.js";
 
 const DEFAULT_BASE_JACKPOT = 50_000;
 
@@ -64,17 +63,9 @@ export function winJackpot(guildId: string, userId: string, userTag: string): nu
   const prize = Math.max(current.amount, DEFAULT_BASE_JACKPOT);
   const now = Date.now();
 
-  db.transaction(() => {
-    // Reset to base jackpot
-    db.prepare(
-      "UPDATE casino_jackpot SET amount = ?, last_winner_id = ?, last_winner_tag = ?, last_won_amount = ?, last_won_at = ?, updated_at = ? WHERE guild_id = ?",
-    ).run(DEFAULT_BASE_JACKPOT, userId, userTag, prize, now, now, guildId);
-
-    // Give prize to user
-    const eco = getEco(guildId, userId);
-    addWallet(eco, prize);
-    saveEco(eco);
-  })();
+  db.prepare(
+    "UPDATE casino_jackpot SET amount = ?, last_winner_id = ?, last_winner_tag = ?, last_won_amount = ?, last_won_at = ?, updated_at = ? WHERE guild_id = ?",
+  ).run(DEFAULT_BASE_JACKPOT, userId, userTag, prize, now, now, guildId);
 
   return prize;
 }

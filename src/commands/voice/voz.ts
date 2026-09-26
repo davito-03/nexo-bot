@@ -1,6 +1,18 @@
-import { ChannelType, SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.js";
-import { getGuildConfig, setGuildConfig } from "../../database/index.js";
-import { panelComponents, panelEmbed } from "../../modules/voicemaster/manager.js";
+import {
+  ChannelType,
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  type ChatInputCommandInteraction,
+  type VoiceBasedChannel,
+} from "discord.js";
+import { getDb, getGuildConfig, setGuildConfig } from "../../database/index.js";
+import {
+  getTemp,
+  hasVoiceStaffBypass,
+  panelComponents,
+  panelEmbed,
+  setChannelAccess,
+} from "../../modules/voicemaster/manager.js";
 import { requireAdmin } from "../../utils/permissions.js";
 import { baseEmbed, errorEmbed, onlyGuild, successEmbed } from "../../utils/embeds.js";
 import { COLORS } from "../../constants.js";
@@ -21,6 +33,32 @@ const command: Command = {
     )
     .addSubcommand((s) =>
       s.setName("reclamar").setDescription("Reclama tu recompensa diaria en NexoCoins por tu racha en llamadas de voz"),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("moderar")
+        .setDescription("Staff: Gestionar cualquier sala temporal activa")
+        .addStringOption((o) =>
+          o
+            .setName("accion")
+            .setDescription("Acción administrativa a ejecutar")
+            .setRequired(true)
+            .addChoices(
+              { name: "ℹ️ Información de la sala", value: "info" },
+              { name: "🔒 Bloquear sala", value: "lock" },
+              { name: "🔓 Desbloquear sala", value: "unlock" },
+              { name: "🙈 Ocultar sala", value: "hide" },
+              { name: "👁️ Mostrar sala", value: "show" },
+              { name: "👑 Reclamar dueño", value: "claim" },
+              { name: "🗑️ Eliminar sala", value: "delete" },
+            ),
+        )
+        .addChannelOption((o) =>
+          o
+            .setName("canal")
+            .setDescription("Canal de voz temporal a gestionar (opcional si ya estás dentro)")
+            .addChannelTypes(ChannelType.GuildVoice),
+        ),
     )
     .addSubcommand((s) =>
       s
@@ -93,6 +131,133 @@ const command: Command = {
             ),
         ],
       });
+      return;
+    }
+
+    if (sub === "moderar") {
+      if (!hasVoiceStaffBypass(interaction.member)) {
+        await interaction.reply({
+          embeds: [errorEmbed("Acceso Denegado", "Solo los roles de Owner y Moderación pueden usar este comando.")],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const channelOpt = interaction.options.getChannel("canal");
+      const targetChannel = (channelOpt ?? interaction.member.voice.channel) as VoiceBasedChannel | null;
+
+      if (!targetChannel || !("isVoiceBased" in targetChannel) || !targetChannel.isVoiceBased()) {
+        await interaction.reply({
+          embeds: [
+            errorEmbed(
+              "Canal no especificado",
+              "Debes indicar un canal de voz temporal en el parámetro `canal` o estar conectado a uno.",
+            ),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const temp = getTemp(targetChannel.id);
+      if (!temp) {
+        await interaction.reply({
+          embeds: [
+            errorEmbed(
+              "No es una sala temporal",
+              `El canal ${targetChannel} no es una sala temporal activa gestionada por VoiceMaster.`,
+            ),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const accion = interaction.options.getString("accion", true);
+      const ownerId = temp.owner_id || "Desconocido";
+
+      switch (accion) {
+        case "info": {
+          const everyone = guild.roles.everyone.id;
+          const isLocked = targetChannel.permissionOverwrites.cache.get(everyone)?.deny.has(PermissionFlagsBits.Connect) ?? false;
+          const isHidden = targetChannel.permissionOverwrites.cache.get(everyone)?.deny.has(PermissionFlagsBits.ViewChannel) ?? false;
+          const currentBitrate = Math.round(targetChannel.bitrate / 1000);
+          const members = targetChannel.members.map((m) => `• <@${m.id}>${m.id === ownerId ? " 👑" : ""}`).join("\n");
+
+          const embed = baseEmbed(COLORS.voice)
+            .setTitle(`ℹ️ Moderación · ${targetChannel.name}`)
+            .addFields(
+              { name: "👑 Dueño", value: `<@${ownerId}>`, inline: true },
+              {
+                name: "👥 Límite",
+                value: targetChannel.userLimit
+                  ? `${targetChannel.members.size}/${targetChannel.userLimit}`
+                  : `${targetChannel.members.size} (Ilimitado)`,
+                inline: true,
+              },
+              { name: "📶 Calidad", value: `${currentBitrate} kbps`, inline: true },
+              { name: "🔒 Acceso", value: isLocked ? "🔒 Bloqueada" : "🔓 Abierta", inline: true },
+              { name: "👁️ Visibilidad", value: isHidden ? "🙈 Oculta" : "👁️ Visible", inline: true },
+              { name: `🎙️ Conectados (${targetChannel.members.size})`, value: members || "*Nadie en la sala*", inline: false },
+            );
+
+          await interaction.reply({ embeds: [embed], ephemeral: true });
+          break;
+        }
+        case "lock":
+          await setChannelAccess(targetChannel, interaction.user.id, "lock");
+          await interaction.reply({
+            embeds: [successEmbed("Sala Bloqueada", `Se ha bloqueado el acceso a **${targetChannel.name}**.`)],
+            ephemeral: true,
+          });
+          break;
+        case "unlock":
+          await setChannelAccess(targetChannel, interaction.user.id, "unlock");
+          await interaction.reply({
+            embeds: [successEmbed("Sala Desbloqueada", `Se ha abierto el acceso a **${targetChannel.name}**.`)],
+            ephemeral: true,
+          });
+          break;
+        case "hide":
+          await setChannelAccess(targetChannel, interaction.user.id, "hide");
+          await interaction.reply({
+            embeds: [successEmbed("Sala Ocultada", `Se ha ocultado la sala **${targetChannel.name}**.`)],
+            ephemeral: true,
+          });
+          break;
+        case "show":
+          await setChannelAccess(targetChannel, interaction.user.id, "show");
+          await interaction.reply({
+            embeds: [successEmbed("Sala Visible", `La sala **${targetChannel.name}** ahora es visible para todos.`)],
+            ephemeral: true,
+          });
+          break;
+        case "claim":
+          getDb().prepare("UPDATE temp_voices SET owner_id = ? WHERE channel_id = ?").run(interaction.user.id, targetChannel.id);
+          await targetChannel.permissionOverwrites.edit(interaction.user.id, {
+            Connect: true,
+            Speak: true,
+            ViewChannel: true,
+          });
+          await interaction.reply({
+            embeds: [
+              successEmbed(
+                "Propiedad Asignada",
+                `Has tomado el control como dueño de la sala **${targetChannel.name}**.`,
+              ),
+            ],
+            ephemeral: true,
+          });
+          break;
+        case "delete":
+          getDb().prepare("DELETE FROM temp_voices WHERE channel_id = ?").run(targetChannel.id);
+          await interaction.reply({
+            embeds: [successEmbed("Sala Eliminada", `Se ha eliminado la sala **${targetChannel.name}**.`)],
+            ephemeral: true,
+          });
+          await targetChannel.delete("Moderación eliminó la sala").catch(() => null);
+          break;
+      }
       return;
     }
 

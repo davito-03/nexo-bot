@@ -323,7 +323,7 @@ export async function renderHeistHud(opts: HeistCanvasOptions): Promise<Buffer> 
 
     // Borde circular de rol
     ctx.strokeStyle = rColor;
-    ctx.lineWidth = avSize > 40 ? 2.5 : 1.8;
+    ctx.lineWidth = avSize > 40 ? 2.5 : avSize > 30 ? 1.8 : 1.3;
     ctx.beginPath();
     ctx.arc(cx, avY + avSize / 2, avSize / 2 + 2, 0, Math.PI * 2);
     ctx.stroke();
@@ -331,14 +331,17 @@ export async function renderHeistHud(opts: HeistCanvasOptions): Promise<Buffer> 
     // Nombre de usuario
     ctx.textAlign = "center";
     ctx.fillStyle = "#ffffff";
-    const nameText = fitText(ctx, m.username, cardW - 8, fontSizeName, Math.max(8, fontSizeName - 3));
+    const nameText = fitText(ctx, m.username, cardW - 6, fontSizeName, Math.max(7, fontSizeName - 3));
     ctx.fillText(nameText, cx, nameY);
 
     // Rol y Nivel
     ctx.fillStyle = rColor;
     ctx.font = `bold ${fontSizeRole}px "Inter Bold", sans-serif`;
-    const roleText = `${rIcon} ${m.roleTitle} Nv.${m.roleLevel}`;
-    const roleFit = fitText(ctx, roleText, cardW - 6, fontSizeRole, Math.max(7, fontSizeRole - 2));
+    const roleText =
+      cardW < 85
+        ? `${rIcon} ${m.roleTitle.split(" ")[0]} ${m.roleLevel}`
+        : `${rIcon} ${m.roleTitle} Nv.${m.roleLevel}`;
+    const roleFit = fitText(ctx, roleText, cardW - 4, fontSizeRole, Math.max(6, fontSizeRole - 2));
     ctx.fillText(roleFit, cx, roleY);
 
     // Estado táctico individual según fase
@@ -370,24 +373,24 @@ export async function renderHeistHud(opts: HeistCanvasOptions): Promise<Buffer> 
 
     ctx.fillStyle = statusColor;
     ctx.font = `bold ${fontSizeStatus}px "Inter Bold", sans-serif`;
-    ctx.fillText(statusText, cx, statusY);
+    const statusFit = fitText(ctx, statusText, cardW - 4, fontSizeStatus, Math.max(6, fontSizeStatus - 2));
+    ctx.fillText(statusFit, cx, statusY);
 
     ctx.textAlign = "left";
   };
 
-  // Renderizado según cantidad de cómplices (1 fila si <=8, 2 filas si 9-16)
-  if (opts.crew.length <= 8) {
+  // Renderizado según cantidad de cómplices (1 fila si <=6, 2 filas si 7-24)
+  if (opts.crew.length <= 6) {
     const crewCount = Math.max(1, opts.crew.length);
     const cardW = Math.floor((panelW - 20) / crewCount);
-    const isLarge = crewCount <= 6;
-    const avSize = isLarge ? 52 : 42;
-    const avY = panelY + (isLarge ? 38 : 34);
-    const nameY = panelY + (isLarge ? 115 : 104);
-    const roleY = panelY + (isLarge ? 133 : 120);
-    const statusY = panelY + (isLarge ? 152 : 138);
-    const fName = isLarge ? 13 : 11;
-    const fRole = isLarge ? 11 : 10;
-    const fStatus = isLarge ? 10 : 9;
+    const avSize = 52;
+    const avY = panelY + 38;
+    const nameY = panelY + 115;
+    const roleY = panelY + 133;
+    const statusY = panelY + 152;
+    const fName = 13;
+    const fRole = 11;
+    const fStatus = 10;
 
     for (let i = 0; i < opts.crew.length; i++) {
       const m = opts.crew[i]!;
@@ -396,28 +399,44 @@ export async function renderHeistHud(opts: HeistCanvasOptions): Promise<Buffer> 
       await drawMemberCard(m, cx, cardW, avY, avSize, nameY, roleY, statusY, fName, fRole, fStatus);
     }
   } else {
-    // Modo 2 filas (hasta 16 miembros)
-    const total = Math.min(16, opts.crew.length);
+    // Modo 2 filas (hasta 24 miembros)
+    const total = Math.min(24, opts.crew.length);
     const half = Math.ceil(total / 2);
     const row1 = opts.crew.slice(0, half);
     const row2 = opts.crew.slice(half, total);
 
+    const isCompact = row1.length > 6;
+    const avSize = isCompact ? 28 : 34;
+    const fName = isCompact ? 9 : 11;
+    const fRole = isCompact ? 8 : 10;
+    const fStatus = isCompact ? 8 : 9;
+
     // Fila 1
     const cardW1 = Math.floor((panelW - 20) / Math.max(1, row1.length));
+    const r1AvY = panelY + 24;
+    const r1NameY = panelY + (isCompact ? 62 : 68);
+    const r1RoleY = panelY + (isCompact ? 74 : 81);
+    const r1StatusY = panelY + (isCompact ? 85 : 93);
+
     for (let i = 0; i < row1.length; i++) {
       const m = row1[i]!;
       const cardX = panelX + 10 + i * cardW1;
       const cx = cardX + cardW1 / 2;
-      await drawMemberCard(m, cx, cardW1, panelY + 25, 32, panelY + 68, panelY + 80, panelY + 91, 10, 9, 8);
+      await drawMemberCard(m, cx, cardW1, r1AvY, avSize, r1NameY, r1RoleY, r1StatusY, fName, fRole, fStatus);
     }
 
     // Fila 2
     const cardW2 = Math.floor((panelW - 20) / Math.max(1, row2.length));
+    const r2AvY = panelY + (isCompact ? 102 : 106);
+    const r2NameY = panelY + (isCompact ? 140 : 150);
+    const r2RoleY = panelY + (isCompact ? 152 : 163);
+    const r2StatusY = panelY + (isCompact ? 163 : 175);
+
     for (let i = 0; i < row2.length; i++) {
       const m = row2[i]!;
       const cardX = panelX + 10 + i * cardW2;
       const cx = cardX + cardW2 / 2;
-      await drawMemberCard(m, cx, cardW2, panelY + 102, 32, panelY + 145, panelY + 157, panelY + 168, 10, 9, 8);
+      await drawMemberCard(m, cx, cardW2, r2AvY, avSize, r2NameY, r2RoleY, r2StatusY, fName, fRole, fStatus);
     }
   }
 

@@ -118,6 +118,9 @@ export async function peopleStrip(people: TicketPerson[]): Promise<Buffer | null
 }
 
 function personLine(p: TicketPerson): string {
+  if (p.role.includes("Reclama") || p.role.includes("Cierra")) {
+    return `**${p.role}** · **${p.tag}**\nID \`${p.id}\``;
+  }
   return `**${p.role}** · <@${p.id}>\n\`${p.tag}\` · ID \`${p.id}\``;
 }
 

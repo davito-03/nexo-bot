@@ -16,14 +16,7 @@ export const TAX_BENEFICIARY_ID = "600041740124160011";
 /** Roles Staff y Owner que reciben el 50% de los impuestos */
 export const TAX_STAFF_ROLE_IDS = [NEXO_STAFF_ROLE_ID, NEXO_OWNER_ROLE_ID];
 
-/** IDs con recargo especial del 30% extra de su riqueza diaria durante 7 días */
-export const SPECIAL_TAX_TARGETS = [
-  "1002206873635799050",
-  "826814201309036575",
-  "1221829496873816064",
-];
-
-/** Tipo efectivo: 4% a 25k → 40% a 10M (lineal sobre el exceso). */
+/** Tipo efectivo progresivo: 1% a 150k → 5% a 25M (lineal sobre el exceso). */
 export function taxRateForNet(net: number, threshold: number, maxNet: number, minRate: number, maxRate: number): number {
   if (net <= threshold) return 0;
   const t = Math.min(1, (net - threshold) / Math.max(1, maxNet - threshold));
@@ -36,23 +29,7 @@ export function taxBill(net: number, threshold: number, maxNet: number, minRate:
   return Math.floor((net - threshold) * rate);
 }
 
-export function ensureSpecialTaxTable(): void {
-  getDb().exec(`
-    CREATE TABLE IF NOT EXISTS special_tax_surcharges (
-      guild_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      extra_rate REAL NOT NULL DEFAULT 0.30,
-      days_charged INTEGER NOT NULL DEFAULT 0,
-      max_days INTEGER NOT NULL DEFAULT 7,
-      last_charged_day TEXT,
-      created_at INTEGER NOT NULL,
-      PRIMARY KEY (guild_id, user_id)
-    );
-  `);
-}
-
 export function applyDailyTax(guildId: string, force = false): { taxed: number; collected: number } {
-  ensureSpecialTaxTable();
   const day = madridDay();
 
   if (!force) {
@@ -60,14 +37,6 @@ export function applyDailyTax(guildId: string, force = false): { taxed: number; 
     if (done) return { taxed: 0, collected: 0 };
   } else {
     getDb().prepare("DELETE FROM tax_runs WHERE guild_id = ? AND week_id = ?").run(guildId, day);
-  }
-
-  // Inicializar recargos especiales si aún no existen
-  for (const targetId of SPECIAL_TAX_TARGETS) {
-    getDb().prepare(`
-      INSERT OR IGNORE INTO special_tax_surcharges (guild_id, user_id, extra_rate, days_charged, max_days, created_at)
-      VALUES (?, ?, 0.30, 0, 7, ?)
-    `).run(guildId, targetId, Date.now());
   }
 
   const cfg = getGuildConfig(guildId);
@@ -80,25 +49,10 @@ export function applyDailyTax(guildId: string, force = false): { taxed: number; 
     .prepare("SELECT * FROM economy WHERE guild_id = ? AND (wallet + bank) > ?")
     .all(guildId, threshold) as EcoRow[];
 
-  const richMap = new Map<string, EcoRow>();
-  for (const row of rich) {
-    richMap.set(row.user_id, row);
-  }
-
-  // Asegurar que los objetivos con recargo especial siempre sean evaluados
-  for (const targetId of SPECIAL_TAX_TARGETS) {
-    if (!richMap.has(targetId)) {
-      const eco = getEco(guildId, targetId);
-      if (eco.wallet + eco.bank > 0) {
-        richMap.set(targetId, eco);
-      }
-    }
-  }
-
   let collected = 0;
   let taxed = 0;
 
-  for (const row of richMap.values()) {
+  for (const row of rich) {
     // El beneficiario que recauda los impuestos queda exento de tributar sobre los fondos del servidor
     if (row.user_id === TAX_BENEFICIARY_ID) continue;
 
@@ -108,20 +62,7 @@ export function applyDailyTax(guildId: string, force = false): { taxed: number; 
     const lockedDeposits = depositsRow?.s ?? 0;
 
     const net = row.wallet + row.bank + lockedDeposits;
-    let bill = taxBill(net, threshold, maxNet, minRate, maxRate);
-
-    // Comprobar si tiene recargo especial activo del 30%
-    const surcharge = getDb()
-      .prepare("SELECT * FROM special_tax_surcharges WHERE guild_id = ? AND user_id = ?")
-      .get(guildId, row.user_id) as { extra_rate: number; days_charged: number; max_days: number; last_charged_day: string | null } | undefined;
-
-    let extraTax = 0;
-    let applySurcharge = false;
-    if (surcharge && surcharge.days_charged < surcharge.max_days && surcharge.last_charged_day !== day) {
-      extraTax = Math.floor(net * surcharge.extra_rate);
-      bill += extraTax;
-      applySurcharge = true;
-    }
+    const bill = taxBill(net, threshold, maxNet, minRate, maxRate);
 
     if (bill < 25) continue;
 
@@ -151,25 +92,6 @@ export function applyDailyTax(guildId: string, force = false): { taxed: number; 
     const paid = bill - left;
     collected += paid;
     taxed += 1;
-
-    // Actualizar seguimiento del recargo especial del 30%
-    if (applySurcharge && surcharge) {
-      const nextDays = surcharge.days_charged + 1;
-      getDb().prepare(`
-        UPDATE special_tax_surcharges SET
-          days_charged = ?,
-          last_charged_day = ?
-        WHERE guild_id = ? AND user_id = ?
-      `).run(nextDays, day, guildId, row.user_id);
-
-      logger.info(`[Impuestos] Recargo del 30% aplicado a ${row.user_id}: ${n(extraTax)} (Día ${nextDays}/${surcharge.max_days})`);
-
-      // Al séptimo día que se cobre, se elimina automáticamente el 30% extra
-      if (nextDays >= surcharge.max_days) {
-        getDb().prepare("DELETE FROM special_tax_surcharges WHERE guild_id = ? AND user_id = ?").run(guildId, row.user_id);
-        logger.info(`[Impuestos] Finalizado periodo de 7 días para ${row.user_id}. Eliminado el recargo extra del 30%.`);
-      }
-    }
   }
 
   // Reparto de todos los impuestos recaudados: 30% a 600041740124160011, 50% a roles Staff/Owner, 20% al 20% más pobre
@@ -282,10 +204,38 @@ export function distributeTaxFunds(guildId: string, totalTax: number, sourceLabe
     saveEco(beneficiary);
   }
 
-  // 4. Ingreso del 20% repartido entre el 20% más pobre de participantes de economía
-  const allEco = getDb()
-    .prepare("SELECT user_id, wallet, bank FROM economy WHERE guild_id = ? AND user_id != ? ORDER BY (wallet + bank) ASC, user_id ASC")
-    .all(guildId, TAX_BENEFICIARY_ID) as { user_id: string; wallet: number; bank: number }[];
+  // 4. Ingreso del 20% repartido entre el 20% más pobre de participantes ACTIVOS de economía
+  const fourteenDaysAgo = Date.now() - 14 * 86_400_000;
+  let allEco = getDb()
+    .prepare(`
+      SELECT user_id, wallet, bank 
+      FROM economy 
+      WHERE guild_id = ? AND user_id != ?
+        AND (
+          last_work > ? OR last_daily > ? OR last_crime > ? 
+          OR last_fish > ? OR last_hunt > ? OR last_beg > ? 
+          OR created_at > ? OR earned > 0
+        )
+      ORDER BY (wallet + bank) ASC, user_id ASC
+    `)
+    .all(
+      guildId,
+      TAX_BENEFICIARY_ID,
+      fourteenDaysAgo,
+      fourteenDaysAgo,
+      fourteenDaysAgo,
+      fourteenDaysAgo,
+      fourteenDaysAgo,
+      fourteenDaysAgo,
+      fourteenDaysAgo,
+    ) as { user_id: string; wallet: number; bank: number }[];
+
+  // Si no hay suficientes jugadores activos filtrados, recurrir al listado general
+  if (allEco.length < 5) {
+    allEco = getDb()
+      .prepare("SELECT user_id, wallet, bank FROM economy WHERE guild_id = ? AND user_id != ? ORDER BY (wallet + bank) ASC, user_id ASC")
+      .all(guildId, TAX_BENEFICIARY_ID) as { user_id: string; wallet: number; bank: number }[];
+  }
 
   const nonStaffEco = allEco.filter((e) => !staffIds.includes(e.user_id));
   const poorCount = Math.max(1, Math.ceil(nonStaffEco.length * 0.20));

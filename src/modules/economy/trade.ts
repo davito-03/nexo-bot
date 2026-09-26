@@ -7,6 +7,7 @@ import {
 } from "discord.js";
 import { getEco, saveEco, invOf, setInv, addWallet, deductFunds, totalFunds, n, checkActivityDrop } from "./engine.js";
 import { getItemDef, RARITY_INFO } from "./items.js";
+import { isUnsellableItem } from "./shop.js";
 import { getDb, getP2POffer, updateP2POfferStatus, insertP2POffer } from "../../database/index.js";
 import { ecoEmbed, errorEmbed, ephemeral } from "../../utils/embeds.js";
 
@@ -50,6 +51,11 @@ export async function createP2POffer(
 
   if (targetUser.id === senderId) {
     await interaction.reply(ephemeral([errorEmbed("Error", "No puedes comerciar contigo mismo.")]));
+    return;
+  }
+
+  if (isUnsellableItem(guildId, itemId)) {
+    await interaction.reply(ephemeral([errorEmbed("Artículo no comerciable", "Los roles exclusivos (como Millonario y Multimillonario) no se pueden comerciar ni transferir.")]));
     return;
   }
 
